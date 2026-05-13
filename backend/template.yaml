@@ -72,8 +72,25 @@ Resources:
           Projection:
             ProjectionType: ALL
 
+  # S3 -> Lambda wiring is explicit (permission + bucket notification) instead of SAM Function
+  # Events:S3 on the same bucket. SAM's implicit S3 event creates Lambda->Bucket and Bucket->Lambda
+  # edges (Function env !Ref Bucket + notification target), which CloudFormation reports as a
+  # circular dependency with the REST API deployment graph in this stack.
+  ProcessDocumentS3InvokePermission:
+    Type: AWS::Lambda::Permission
+    DependsOn: ProcessDocumentFunction
+    Properties:
+      FunctionName: !Ref ProcessDocumentFunction
+      Action: lambda:InvokeFunction
+      Principal: s3.amazonaws.com
+      # Use a constructed ARN (not !GetAtt RawUploadsBucket.Arn) so the permission does not
+      # depend on the bucket resource; the bucket can then depend on this permission safely.
+      SourceArn: !Sub "arn:aws:s3:::limdocs-raw-uploads-${AWS::AccountId}"
+      SourceAccount: !Ref AWS::AccountId
+
   RawUploadsBucket:
     Type: AWS::S3::Bucket
+    DependsOn: ProcessDocumentS3InvokePermission
     Properties:
       # Stable, readable name (account-scoped uniqueness for the global S3 namespace)
       BucketName: !Sub "limdocs-raw-uploads-${AWS::AccountId}"
@@ -88,6 +105,15 @@ Resources:
               - POST
             AllowedOrigins:
               - "*"
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: s3:ObjectCreated:*
+            Function: !GetAtt ProcessDocumentFunction.Arn
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: uploads/
 
   ProcessedOutputsBucket:
     Type: AWS::S3::Bucket
@@ -299,18 +325,11 @@ Resources:
         Variables:
           DOCUMENTS_TABLE: !Ref DocumentsTable
           PROCESSED_BUCKET: !Ref ProcessedOutputsBucket
-          UPLOAD_BUCKET: !Ref RawUploadsBucket
-      Events:
-        S3Event:
-          Type: S3
-          Properties:
-            Bucket: !Ref RawUploadsBucket
-            Events: s3:ObjectCreated:*
-            Filter:
-              S3Key:
-                Rules:
-                  - Name: prefix
-                    Value: uploads/
+          # Same physical bucket as RawUploadsBucket; use !Sub (not !Ref RawUploadsBucket) so the
+          # function does not depend on the bucket resource. That breaks the Bucket<->Lambda cycle
+          # when NotificationConfiguration on the bucket references this function.
+          UPLOAD_BUCKET: !Sub "limdocs-raw-uploads-${AWS::AccountId}"
+      # S3 trigger: see RawUploadsBucket.NotificationConfiguration and ProcessDocumentS3InvokePermission
 
   GetCourseDocumentsFunction:
     Type: AWS::Serverless::Function
