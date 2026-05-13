@@ -646,7 +646,7 @@ export default function LoginPage({ initialMode = 'login' }) {
               onSubmit={handleConfirmSubmit}
               noValidate
             >
-              <p className="login-page__label" style={{ marginBottom: '0.75rem' }}>
+              <p className="login-page__label login-page__label--spaced">
                 {t.login.confirmPrompt}{' '}
                 <strong dir="ltr"> {signup.email.trim() || t.login.yourEmail}</strong>
               </p>

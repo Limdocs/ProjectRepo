@@ -851,9 +851,6 @@ export default function CoursePage() {
                     const status = doc.processing_status ?? doc.processingStatus ?? ''
                     const normalizedStatus = normalizeProcessingStatus(status)
                     const isInteractive = QUIZ_ELIGIBLE_STATUSES.has(normalizedStatus)
-                    const hasGeneratedQuiz = Boolean(
-                      doc.has_generated_quiz ?? doc.hasGeneratedQuiz ?? false,
-                    )
                     const deletingThisDoc = deletingDocId === String(id)
                     const docId = String(id)
                     const isSelected = selectedDocIds.includes(docId)
@@ -881,11 +878,6 @@ export default function CoursePage() {
                             <span className="course-page__doc-card-name" title={String(name)}>
                               {String(name)}
                             </span>
-                            {hasGeneratedQuiz ? (
-                              <span className="course-page__doc-practiced-indicator" aria-hidden>
-                                ✓
-                              </span>
-                            ) : null}
                           </span>
                           <span className="course-page__doc-card-date">
                             {formatDocumentDate(created, lang)}
@@ -905,7 +897,7 @@ export default function CoursePage() {
                                 <path
                                   d="M9 3.75h6m-7.5 3h9m-7.5 3.75v7.5m3-7.5v7.5m4.875-10.5-.662 9.272A2.25 2.25 0 0 1 13.97 21h-3.94a2.25 2.25 0 0 1-2.243-2.028L7.125 7.5"
                                   stroke="currentColor"
-                                  strokeWidth="1.75"
+                                  strokeWidth="1.5"
                                   strokeLinecap="round"
                                   strokeLinejoin="round"
                                 />
@@ -985,7 +977,7 @@ export default function CoursePage() {
                                 <path
                                   d="M9 3.75h6m-7.5 3h9m-7.5 3.75v7.5m3-7.5v7.5m4.875-10.5-.662 9.272A2.25 2.25 0 0 1 13.97 21h-3.94a2.25 2.25 0 0 1-2.243-2.028L7.125 7.5"
                                   stroke="currentColor"
-                                  strokeWidth="1.75"
+                                  strokeWidth="1.5"
                                   strokeLinecap="round"
                                   strokeLinejoin="round"
                                 />
@@ -1203,7 +1195,7 @@ export default function CoursePage() {
                       <path
                         d="M12 4v12m0 0l-4-4m4 4l4-4M5 20h14"
                         stroke="currentColor"
-                        strokeWidth="1.75"
+                        strokeWidth="1.5"
                         strokeLinecap="round"
                         strokeLinejoin="round"
                       />

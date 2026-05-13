@@ -1,35 +1,165 @@
-:root {
-  /* Design system — Limdocs premium minimalist */
-  --brand-blue: #007aff;
-  --active-bg-tint: #e8f4ff;
-  --text-primary: #0f172a;
-  --text-secondary: #64748b;
-  --surface-page: #fafafa;
+﻿:root {
+  /* Motion */
+  --ease-fluid: cubic-bezier(0.25, 1, 0.5, 1);
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --duration-fast: 0.16s;
+  --duration-normal: 0.22s;
+  --duration-slow: 0.32s;
+
+  /* Surfaces — cool tinted layers */
+  --surface-page: #f8fafc;
   --surface-elevated: #ffffff;
-  --border-hairline: 1px solid #e5e7eb;
-  --shadow-diffused: 0 24px 48px -12px rgba(15, 23, 42, 0.08);
+  --surface-muted: #f1f5f9;
+
+  /* Typography — deep ink + readable slate */
+  --text-primary: #0f172a;
+  --text-secondary: #334155;
+  --text-muted: #64748b;
+  --text-on-accent: #f8fafc;
+
+  /* Accent — silvery / metallic slate-blue */
+  --accent: #5c7c9e;
+  --accent-hover: #4d6d8c;
+  --accent-press: #3f5a73;
+  --accent-highlight: #7d9bb8;
+  --brand-blue: var(--accent);
+  --active-bg-tint: color-mix(in srgb, var(--accent) 14%, var(--surface-elevated));
+  --accent-subtle-bg: color-mix(in srgb, var(--accent) 11%, transparent);
+  --accent-border-soft: color-mix(in srgb, var(--accent) 32%, var(--surface-elevated));
+  --accent-focus-ring: color-mix(in srgb, var(--accent) 28%, transparent);
+
+  /* Inputs */
+  --control-border-width: 1.5px;
+  --control-border-color: color-mix(in srgb, var(--text-primary) 12%, #e2e8f0);
+  --control-padding-y: 0.88rem;
+  --control-padding-x: 1rem;
+  --shadow-focus-accent:
+    0 0 0 1px var(--surface-elevated),
+    0 0 0 4px color-mix(in srgb, var(--accent) 26%, transparent),
+    0 12px 32px -14px color-mix(in srgb, var(--accent) 42%, transparent);
+  --shadow-focus-danger:
+    0 0 0 1px var(--surface-elevated),
+    0 0 0 4px color-mix(in srgb, var(--danger-strong) 22%, transparent),
+    0 10px 26px -12px color-mix(in srgb, var(--danger-strong) 32%, transparent);
+
+  /* Primary button — bento / brushed depth */
+  --btn-primary-face: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--accent-highlight) 45%, var(--accent)) 0%,
+    var(--accent) 48%,
+    color-mix(in srgb, var(--accent) 78%, #0f172a) 100%
+  );
+  --btn-primary-face-hover: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--accent-highlight) 52%, var(--accent-hover)) 0%,
+    var(--accent-hover) 50%,
+    color-mix(in srgb, var(--accent-hover) 78%, #0f172a) 100%
+  );
+  --btn-primary-border: 1px solid color-mix(in srgb, var(--accent) 58%, #0f172a);
+  --btn-primary-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.33),
+    0 1px 1px rgba(15, 23, 42, 0.07),
+    0 4px 14px -3px rgba(15, 23, 42, 0.16);
+  --btn-primary-shadow-hover:
+    inset 0 1px 0 rgba(255, 255, 255, 0.4),
+    0 2px 3px rgba(15, 23, 42, 0.08),
+    0 10px 26px -8px rgba(15, 23, 42, 0.22);
+
+  /* Danger primary */
+  --btn-danger-face: linear-gradient(180deg, #c43535 0%, var(--danger-strong) 45%, #7f1515 100%);
+  --btn-danger-face-hover: linear-gradient(180deg, #d04545 0%, #b91c1c 48%, #6b1010 100%);
+  --btn-danger-border: 1px solid color-mix(in srgb, var(--danger-strong) 62%, #0f172a);
+  --btn-danger-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    0 1px 1px rgba(15, 23, 42, 0.08),
+    0 4px 14px -3px rgba(127, 29, 29, 0.35);
+
+  /* Hairlines & borders */
+  --border-color: #e2e8f0;
+  --border-hairline: 1px solid var(--border-color);
+  --border-hover: 1px solid color-mix(in srgb, var(--text-primary) 12%, var(--border-color));
+
+  /* Shadows — floating elevation */
+  --shadow-ambient: 0 1px 2px rgba(15, 23, 42, 0.05);
+  --shadow-card:
+    0 0 0 1px rgba(15, 23, 42, 0.04),
+    0 1px 2px rgba(15, 23, 42, 0.05),
+    0 12px 32px -14px rgba(15, 23, 42, 0.12);
+  --shadow-card-hover:
+    0 0 0 1px rgba(15, 23, 42, 0.055),
+    0 2px 6px rgba(15, 23, 42, 0.06),
+    0 18px 42px -16px rgba(15, 23, 42, 0.16);
+  --shadow-diffused: 0 22px 50px -24px rgba(15, 23, 42, 0.12);
+  --shadow-hover: 0 16px 36px -18px rgba(15, 23, 42, 0.14);
+  --shadow-modal: 0 28px 64px -28px rgba(15, 23, 42, 0.18);
+  --shadow-modal-panel:
+    0 0 0 1px rgba(255, 255, 255, 0.55) inset,
+    0 0 0 1px rgba(15, 23, 42, 0.06),
+    0 24px 56px -28px rgba(15, 23, 42, 0.2);
+
+  --backdrop-scrim: rgba(15, 23, 42, 0.26);
+
+  /* Glass */
+  --glass-bg: color-mix(in srgb, var(--surface-elevated) 76%, transparent);
+  --glass-bg-strong: color-mix(in srgb, var(--surface-elevated) 88%, transparent);
+  --glass-border: 1px solid color-mix(in srgb, var(--text-primary) 8%, transparent);
+
+  /* Semantic */
+  --success-fg: #166534;
+  --success-bg: #ecfdf3;
+  --success-border: #a7d7b8;
+  --danger-fg: #7f1d1d;
+  --danger-bg: #fdf2f2;
+  --danger-border: #e5bcbc;
+  --danger-strong: #991b1b;
+
+  /* Layered neutrals & status chips (avoid raw rgba in page CSS) */
+  --neutral-row-hover-bg: color-mix(in srgb, var(--text-primary) 4.2%, var(--surface-elevated));
+  --control-border-muted: color-mix(in srgb, var(--text-primary) 22%, var(--surface-elevated));
+  --dropzone-dash-color: color-mix(in srgb, var(--text-primary) 18%, var(--border-color));
+  --spinner-track: color-mix(in srgb, var(--text-primary) 16%, var(--surface-elevated));
+
+  --success-surface-ghost: color-mix(in srgb, var(--success-fg) 9%, var(--surface-elevated));
+  --success-surface-chip: color-mix(in srgb, var(--success-fg) 14%, var(--surface-elevated));
+  --success-edge-soft: color-mix(in srgb, var(--success-fg) 22%, var(--surface-elevated));
+  --success-edge-medium: color-mix(in srgb, var(--success-fg) 30%, var(--surface-elevated));
+
+  --danger-surface-ghost: color-mix(in srgb, var(--danger-strong) 6%, var(--surface-elevated));
+  --danger-surface-soft: color-mix(in srgb, var(--danger-strong) 8%, var(--surface-elevated));
+  --danger-surface-medium: color-mix(in srgb, var(--danger-strong) 9%, var(--surface-elevated));
+  --danger-edge-soft: color-mix(in srgb, var(--danger-strong) 22%, var(--surface-elevated));
+  --danger-edge-medium: color-mix(in srgb, var(--danger-strong) 24%, var(--surface-elevated));
+  --danger-edge-strong: color-mix(in srgb, var(--danger-strong) 35%, var(--surface-elevated));
+  --danger-edge-emphasis: color-mix(in srgb, var(--danger-strong) 40%, var(--surface-elevated));
+  --danger-edge-max: color-mix(in srgb, var(--danger-strong) 50%, var(--surface-elevated));
+  --danger-ghost-btn-border: color-mix(in srgb, var(--danger-strong) 26%, var(--surface-elevated));
+  --danger-ghost-btn-bg: color-mix(in srgb, var(--surface-elevated) 90%, var(--danger-strong));
+  --danger-ghost-btn-hover-bg: color-mix(in srgb, var(--danger-bg) 88%, var(--danger-strong));
+  --danger-ghost-btn-hover-border: color-mix(in srgb, var(--danger-strong) 42%, var(--surface-elevated));
 
   /* Legacy / shared aliases */
   --text: var(--text-secondary);
   --text-h: var(--text-primary);
   --bg: var(--surface-elevated);
-  --border: #e5e4e7;
-  --code-bg: #f4f3ec;
-  --accent: var(--brand-blue);
-  --accent-bg: rgba(0, 122, 255, 0.1);
-  --accent-border: rgba(0, 122, 255, 0.45);
-  --social-bg: rgba(244, 243, 236, 0.5);
-  --shadow:
-    rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
+  --border: var(--border-color);
+  --code-bg: #e8eef4;
+  --accent-bg: color-mix(in srgb, var(--accent) 14%, transparent);
+  --accent-border: color-mix(in srgb, var(--accent) 38%, var(--surface-elevated));
+  --social-bg: color-mix(in srgb, var(--surface-muted) 55%, var(--surface-elevated));
+  --shadow: var(--shadow-hover);
 
   --sans:
-    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+    'Inter', 'Heebo', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial,
+    sans-serif;
   --heading: var(--sans);
   --mono: ui-monospace, 'Cascadia Code', Consolas, monospace;
 
+  --scrollbar-thumb: color-mix(in srgb, var(--text-primary) 16%, transparent);
+  --scrollbar-thumb-hover: color-mix(in srgb, var(--text-primary) 26%, transparent);
+  --scrollbar-track: transparent;
+
   font: 18px/145% var(--sans);
   letter-spacing: 0.01em;
-  /* Light palette only: OS dark mode was flipping surfaces while Home sidebar stayed light — mismatch. */
   color-scheme: light;
   color: var(--text-secondary);
   background: var(--surface-page);
@@ -41,6 +171,38 @@
   @media (max-width: 1024px) {
     font-size: 16px;
   }
+}
+
+html {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}
+
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+*::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+  border-radius: 999px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+  border: 1px solid transparent;
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 body {
@@ -102,3 +264,4 @@ code {
   padding: 4px 8px;
   background: var(--code-bg);
 }
+

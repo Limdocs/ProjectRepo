@@ -42,22 +42,6 @@ function IconBooks() {
   )
 }
 
-function IconUser() {
-  return (
-    <svg className="home-page__nav-icon" width="20" height="20" viewBox="0 0 24 24" aria-hidden>
-      <path
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"
-      />
-      <circle cx="12" cy="7" r="4" fill="none" stroke="currentColor" strokeWidth="1.5" />
-    </svg>
-  )
-}
-
 function IconLogout() {
   return (
     <svg className="home-page__nav-icon" width="20" height="20" viewBox="0 0 24 24" aria-hidden>
@@ -73,16 +57,161 @@ function IconLogout() {
   )
 }
 
-function IconFolder() {
+function IconNavDocuments() {
   return (
-    <svg className="home-page__course-icon" width="22" height="22" viewBox="0 0 24 24" aria-hidden>
+    <svg className="home-page__nav-icon" width="20" height="20" viewBox="0 0 24 24" aria-hidden>
       <path
         fill="none"
         stroke="currentColor"
         strokeWidth="1.5"
         strokeLinecap="round"
         strokeLinejoin="round"
-        d="M3 7.5V18a1.5 1.5 0 001.5 1.5h15A1.5 1.5 0 0021 18V9a1.5 1.5 0 00-1.5-1.5h-6.379a1.5 1.5 0 01-1.06-.439l-1.122-1.122A1.5 1.5 0 009.879 5.5H4.5A1.5 1.5 0 003 7v.5z"
+        d="M14.25 2.25h-4.5L7.5 4.5H3.75A1.5 1.5 0 002.25 6v13.5A1.5 1.5 0 003.75 21h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5h-3.75L14.25 2.25z"
+      />
+    </svg>
+  )
+}
+
+function IconNavAnalytics() {
+  return (
+    <svg className="home-page__nav-icon" width="20" height="20" viewBox="0 0 24 24" aria-hidden>
+      <path
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M3 3v18h18M7 16l4-4 4 3 5-6"
+      />
+    </svg>
+  )
+}
+
+function IconNavSettings() {
+  return (
+    <svg className="home-page__nav-icon" width="20" height="20" viewBox="0 0 24 24" aria-hidden>
+      <path
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M12 15a3 3 0 100-6 3 3 0 000 6z M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.6a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9c.26.604.852 1 1.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"
+      />
+    </svg>
+  )
+}
+
+function IconNavSupport() {
+  return (
+    <svg className="home-page__nav-icon" width="20" height="20" viewBox="0 0 24 24" aria-hidden>
+      <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" strokeWidth="1.5" />
+      <path
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M9.09 9a3 3 0 115.82 1c0 2-3 2-3 4M12 17h.01"
+      />
+    </svg>
+  )
+}
+
+function IconSearch() {
+  return (
+    <svg className="home-page__toolbar-icon" width="18" height="18" viewBox="0 0 24 24" aria-hidden>
+      <path
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+        d="M11 19a8 8 0 100-16 8 8 0 000 16zm10 2-4.35-4.35"
+      />
+    </svg>
+  )
+}
+
+function IconBell() {
+  return (
+    <svg className="home-page__toolbar-icon" width="20" height="20" viewBox="0 0 24 24" aria-hidden>
+      <path
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11c0-3.866-3.134-7-7-7S4 7.134 4 11v3.159c0 .538-.214 1.055-.595 1.436L2 17h5m8 0a3 3 0 11-6 0h6z"
+      />
+    </svg>
+  )
+}
+
+function IconFilter() {
+  return (
+    <svg className="home-page__filter-icon" width="18" height="18" viewBox="0 0 24 24" aria-hidden>
+      <path
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        d="M4 6h16M8 12h8M10 18h4"
+      />
+      <circle cx="18" cy="6" r="1.5" fill="currentColor" />
+      <circle cx="6" cy="12" r="1.5" fill="currentColor" />
+      <circle cx="14" cy="18" r="1.5" fill="currentColor" />
+    </svg>
+  )
+}
+
+function IconMetaDoc() {
+  return (
+    <svg className="home-page__meta-icon" width="16" height="16" viewBox="0 0 24 24" aria-hidden>
+      <path
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M14.25 2.25h-6a1.5 1.5 0 00-1.5 1.5v16.5a1.5 1.5 0 001.5 1.5h10.5a1.5 1.5 0 001.5-1.5V7.5L14.25 2.25z M14.25 2.25V7.5h5.25"
+      />
+    </svg>
+  )
+}
+
+function IconMetaClock() {
+  return (
+    <svg className="home-page__meta-icon" width="16" height="16" viewBox="0 0 24 24" aria-hidden>
+      <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" strokeWidth="1.5" />
+      <path fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" d="M12 7v5l3 2" />
+    </svg>
+  )
+}
+
+function IconFabPdf() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden>
+      <path
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        d="M14 2H8a2 2 0 00-2 2v16a2 2 0 002 2h8a2 2 0 002-2V8l-6-6z M14 2v6h6M10 12h4M10 16h4"
+      />
+    </svg>
+  )
+}
+
+function IconFabHelp() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden>
+      <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" strokeWidth="1.5" />
+      <path
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+        d="M9.75 9.75a2.25 2.25 0 114.5 0c0 1.75-2.25 2-2.25 3.75M12 17h.01"
       />
     </svg>
   )
@@ -135,7 +264,7 @@ function IconTrash() {
       <path
         fill="none"
         stroke="currentColor"
-        strokeWidth="1.8"
+        strokeWidth="1.5"
         strokeLinecap="round"
         strokeLinejoin="round"
         d="M9 3.75h6m-7.5 3h9m-7.5 3.75v7.5m3-7.5v7.5m4.875-10.5-.662 9.272A2.25 2.25 0 0 1 13.97 21h-3.94a2.25 2.25 0 0 1-2.243-2.028L7.125 7.5"
@@ -148,6 +277,47 @@ function logAuthError(context, error) {
   const message = error?.message ?? String(error)
   const name = error?.name ?? error?.code
   console.warn('[Auth i18n draft]', context, { name, message, error })
+}
+
+function getCourseDocCount(course) {
+  const raw = course?.document_count ?? course?.documents_count ?? course?.materials_count
+  if (raw == null || raw === '') return 0
+  const n = Number(raw)
+  return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0
+}
+
+function getCourseProgress(course) {
+  const raw = course?.progress_percent ?? course?.progress ?? course?.completion_percent
+  if (raw == null || raw === '') return 0
+  const n = Number(raw)
+  if (!Number.isFinite(n)) return 0
+  return Math.min(100, Math.max(0, Math.round(n)))
+}
+
+function formatRelativeActivity(iso, lang) {
+  if (!iso || typeof iso !== 'string') return null
+  const then = new Date(iso)
+  if (Number.isNaN(then.getTime())) return null
+  const diffSec = (then.getTime() - Date.now()) / 1000
+  const abs = Math.abs(diffSec)
+  const rtf = new Intl.RelativeTimeFormat(lang === 'he' ? 'he' : 'en', { numeric: 'auto' })
+  if (abs < 60) return rtf.format(Math.round(diffSec), 'second')
+  if (abs < 3600) return rtf.format(Math.round(diffSec / 60), 'minute')
+  if (abs < 86400) return rtf.format(Math.round(diffSec / 3600), 'hour')
+  if (abs < 86400 * 7) return rtf.format(Math.round(diffSec / 86400), 'day')
+  if (abs < 86400 * 30) return rtf.format(Math.round(diffSec / (86400 * 7)), 'week')
+  if (abs < 86400 * 365) return rtf.format(Math.round(diffSec / (86400 * 30)), 'month')
+  return rtf.format(Math.round(diffSec / (86400 * 365)), 'year')
+}
+
+function pickDisplayInitials(name) {
+  const s = String(name || '').trim()
+  if (!s) return '?'
+  const parts = s.split(/\s+/).filter(Boolean)
+  if (parts.length >= 2) {
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+  }
+  return s.slice(0, 2).toUpperCase()
 }
 
 export default function HomePage() {
@@ -378,13 +548,11 @@ export default function HomePage() {
     <main className="home-page" dir={dir} lang={lang}>
       <aside className="home-page__sidebar" aria-label={t.home.navLabel}>
         <div className="home-page__brand">
-          <div className="home-page__logo" aria-hidden>
-            L
-          </div>
+          <div className="home-page__logo" aria-hidden />
           <p className="home-page__brand-name">{t.home.brandName}</p>
         </div>
 
-        <nav className="home-page__menu">
+        <nav className="home-page__menu" aria-label={t.home.navLabel}>
           <button type="button" className="home-page__menu-item home-page__menu-item--active">
             <IconHome />
             <span>{t.home.dashboard}</span>
@@ -394,10 +562,45 @@ export default function HomePage() {
             <span>{t.home.myCourses}</span>
           </button>
           <button type="button" className="home-page__menu-item">
-            <IconUser />
-            <span>{t.home.profile}</span>
+            <IconNavDocuments />
+            <span>{t.home.documents}</span>
+          </button>
+          <button type="button" className="home-page__menu-item">
+            <IconNavAnalytics />
+            <span>{t.home.analytics}</span>
           </button>
         </nav>
+
+        <div className="home-page__sidebar-spacer" aria-hidden />
+
+        <div className="home-page__sidebar-footer">
+          <div className="home-page__lang-switch" role="group" aria-label={t.common.switchLanguage}>
+            <button
+              type="button"
+              className={`home-page__lang-btn ${lang === 'he' ? 'home-page__lang-btn--active' : ''}`}
+              onClick={() => setLang('he')}
+            >
+              {t.common.langHe}
+            </button>
+            <button
+              type="button"
+              className={`home-page__lang-btn ${lang === 'en' ? 'home-page__lang-btn--active' : ''}`}
+              onClick={() => setLang('en')}
+            >
+              {t.common.langEn}
+            </button>
+          </div>
+          <nav className="home-page__menu home-page__menu--compact" aria-label={`${t.home.settings}, ${t.home.support}`}>
+            <button type="button" className="home-page__menu-item">
+              <IconNavSettings />
+              <span>{t.home.settings}</span>
+            </button>
+            <button type="button" className="home-page__menu-item">
+              <IconNavSupport />
+              <span>{t.home.support}</span>
+            </button>
+          </nav>
+        </div>
 
         <button type="button" className="home-page__logout" onClick={handleLogout}>
           <IconLogout />
@@ -406,34 +609,46 @@ export default function HomePage() {
       </aside>
 
       <section className="home-page__content">
-        <div className="home-page__lang-switch" role="group" aria-label={t.common.switchLanguage}>
-          <button
-            type="button"
-            className={`home-page__lang-btn ${lang === 'he' ? 'home-page__lang-btn--active' : ''}`}
-            onClick={() => setLang('he')}
-          >
-            {t.common.langHe}
-          </button>
-          <button
-            type="button"
-            className={`home-page__lang-btn ${lang === 'en' ? 'home-page__lang-btn--active' : ''}`}
-            onClick={() => setLang('en')}
-          >
-            {t.common.langEn}
-          </button>
-        </div>
-        <div className="home-page__welcome-panel">
-          <div>
-            <p className="home-page__eyebrow">{t.home.dashboard}</p>
+        <header className="home-page__top-bar">
+          <div className="home-page__top-bar-welcome">
             <h1 className="home-page__greeting">
               {tx(t.home.greeting, { name: displayName || 'Guest' })}
             </h1>
             <p className="home-page__subtext">{t.home.subtext}</p>
           </div>
-        </div>
+          <div className="home-page__top-bar-tools">
+            <label className="home-page__search">
+              <span className="home-page__search-icon">
+                <IconSearch />
+              </span>
+              <input
+                type="search"
+                className="home-page__search-input"
+                placeholder={t.home.searchCoursesPlaceholder}
+                readOnly
+                tabIndex={0}
+                aria-label={t.home.searchCoursesPlaceholder}
+              />
+            </label>
+            <button type="button" className="home-page__icon-btn" aria-label={t.home.notificationsAria}>
+              <IconBell />
+            </button>
+            <div className="home-page__avatar" role="img" aria-label={t.home.profilePhotoAria}>
+              {pickDisplayInitials(displayName)}
+            </div>
+          </div>
+        </header>
+
         <section className="home-page__courses-section" aria-live="polite">
           <header className="home-page__courses-header">
-            <h2 className="home-page__courses-title">{t.home.myCourses}</h2>
+            <div className="home-page__courses-header-text">
+              <h2 className="home-page__courses-title">{t.home.myCourses}</h2>
+              <p className="home-page__courses-subtitle">{t.home.myCoursesSubtitle}</p>
+            </div>
+            <button type="button" className="home-page__filter-btn">
+              <IconFilter />
+              <span>{t.home.filterCourses}</span>
+            </button>
           </header>
 
           {isCoursesLoading ? (
@@ -457,6 +672,16 @@ export default function HomePage() {
                 const courseId = course.course_id ?? course.id ?? course.courseId ?? ''
                 const courseName =
                   course.course_name ?? course.name ?? t.home.untitledCourse
+                const docCount = getCourseDocCount(course)
+                const progressPct = getCourseProgress(course)
+                const createdAt = course.created_at ?? course.createdAt
+                const activityPhrase = formatRelativeActivity(
+                  typeof createdAt === 'string' ? createdAt : null,
+                  lang,
+                )
+                const activityLabel = tx(t.home.courseMetaActivity, {
+                  time: activityPhrase ?? '—',
+                })
                 return (
                   <li key={String(courseId || courseName)} className="home-page__courses-grid-item">
                     <div className="home-page__course-card-shell">
@@ -470,12 +695,38 @@ export default function HomePage() {
                           })
                         }}
                       >
-                        <span className="home-page__course-card-icon-wrap" aria-hidden>
-                          <IconFolder />
-                        </span>
-                        <span className="home-page__course-card-text">
+                        <div className="home-page__course-card-body">
                           <span className="home-page__course-name">{courseName}</span>
-                        </span>
+                          <div className="home-page__course-meta">
+                            <span className="home-page__course-meta-item">
+                              <IconMetaDoc />
+                              <span>{tx(t.home.courseMetaDocs, { count: docCount })}</span>
+                            </span>
+                            <span className="home-page__course-meta-item">
+                              <IconMetaClock />
+                              <span>{activityLabel}</span>
+                            </span>
+                          </div>
+                          <div className="home-page__course-progress-block">
+                            <div className="home-page__course-progress-labels">
+                              <span>{t.home.progressLabel}</span>
+                              <span>{progressPct}%</span>
+                            </div>
+                            <div
+                              className="home-page__course-progress-track"
+                              role="progressbar"
+                              aria-valuenow={progressPct}
+                              aria-valuemin={0}
+                              aria-valuemax={100}
+                              aria-label={t.home.progressLabel}
+                            >
+                              <span
+                                className="home-page__course-progress-fill"
+                                style={{ width: `${progressPct}%` }}
+                              />
+                            </div>
+                          </div>
+                        </div>
                         <IconChevronEnd />
                       </button>
                       <button
@@ -497,18 +748,26 @@ export default function HomePage() {
                   className="home-page__course-card home-page__course-card--create"
                   onClick={() => setIsCreateCourseOpen(true)}
                 >
-                  <span className="home-page__course-card-icon-wrap home-page__course-card-icon-wrap--create" aria-hidden>
+                  <span className="home-page__create-fab" aria-hidden>
                     <IconPlus />
                   </span>
-                  <span className="home-page__course-card-text">
-                    <span className="home-page__course-name home-page__course-name--create">{t.home.createCourse}</span>
-                  </span>
+                  <span className="home-page__course-name home-page__course-name--create">{t.home.createCourse}</span>
+                  <span className="home-page__create-hint">{t.home.createCourseCardHint}</span>
                 </button>
               </li>
             </ul>
           ) : null}
         </section>
       </section>
+
+      <div className="home-page__fab-stack">
+        <button type="button" className="home-page__fab home-page__fab--pdf" aria-label={t.home.materialsFabAria}>
+          <IconFabPdf />
+        </button>
+        <button type="button" className="home-page__fab home-page__fab--help" aria-label={t.home.helpFabAria}>
+          <IconFabHelp />
+        </button>
+      </div>
       {isCreateCourseOpen ? (
         <div
           className="home-page__modal-backdrop"
