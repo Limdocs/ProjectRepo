@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 from decimal import Decimal
 
@@ -6,14 +7,20 @@ import boto3
 from botocore.exceptions import ClientError
 from boto3.dynamodb.conditions import Key
 
+from course_access import require_course_owner
+
 QUESTION_SETS_TABLE = os.environ["QUESTION_SETS_TABLE"]
 QUESTIONS_TABLE = os.environ["QUESTIONS_TABLE"]
+COURSES_TABLE = os.environ["COURSES_TABLE"]
 QUESTION_SETS_COURSE_INDEX = os.environ.get("QUESTION_SETS_COURSE_INDEX", "CourseIdCreatedAtIndex")
 QUESTIONS_SET_INDEX = os.environ.get("QUESTIONS_SET_INDEX", "SetIdIndex")
 
 _dynamodb = boto3.resource("dynamodb")
 _question_sets_table = _dynamodb.Table(QUESTION_SETS_TABLE)
 _questions_table = _dynamodb.Table(QUESTIONS_TABLE)
+_courses_table = _dynamodb.Table(COURSES_TABLE)
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
 
 _CORS_ALLOW_HEADERS = "Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token"
 
@@ -119,9 +126,11 @@ def _query_questions_by_set_id(set_id):
             if not last_evaluated_key:
                 break
     except ClientError as exc:
-        print(
-            "[get_questions] Failed querying questions by set_id",
-            {"set_id": set_id, "index": QUESTIONS_SET_INDEX, "error": str(exc)},
+        logger.warning(
+            "get_questions query failed set_id=%s index=%s error=%s",
+            set_id,
+            QUESTIONS_SET_INDEX,
+            str(exc),
         )
         raise
     return items
@@ -135,9 +144,11 @@ def _list_sets(course_id):
             ScanIndexForward=False,
         )
     except ClientError as exc:
-        print(
-            "[get_questions] Failed listing sets by course_id",
-            {"course_id": course_id, "index": QUESTION_SETS_COURSE_INDEX, "error": str(exc)},
+        logger.warning(
+            "get_questions list_sets failed course_id=%s index=%s error=%s",
+            course_id,
+            QUESTION_SETS_COURSE_INDEX,
+            str(exc),
         )
         raise
     items = result.get("Items", [])
@@ -226,12 +237,18 @@ def lambda_handler(event, _context):
         if method == "OPTIONS":
             return _response(200, {"message": "OK"}, route_allow_methods)
 
-        if not _claim_sub(event):
+        user_sub = _claim_sub(event)
+        if not user_sub:
             return _response(401, {"message": "Unauthorized"}, route_allow_methods)
 
         course_id = _get_path_param(event, "courseId")
         if not course_id:
             return _response(400, {"message": "Missing path parameter: courseId"}, route_allow_methods)
+
+        gate = require_course_owner(_courses_table, course_id, user_sub)
+        if gate:
+            status, body = gate
+            return _response(status, body, route_allow_methods)
 
         if method == "GET" and not set_id:
             return _list_sets(course_id)
@@ -241,9 +258,11 @@ def lambda_handler(event, _context):
             return _delete_set(course_id, set_id)
 
         return _response(405, {"message": "Method not allowed"}, route_allow_methods)
-    except Exception as exc:
-        print(
-            "[get_questions] Unhandled error",
-            {"method": method, "course_id": _get_path_param(event, "courseId"), "set_id": set_id, "error": str(exc)},
+    except Exception:
+        logger.exception(
+            "get_questions error method=%s course_id=%s set_id=%s",
+            method,
+            _get_path_param(event, "courseId"),
+            set_id,
         )
         return _response(500, {"message": "Internal server error"}, route_allow_methods)

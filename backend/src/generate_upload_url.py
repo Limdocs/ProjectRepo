@@ -7,10 +7,15 @@ from uuid import uuid4
 
 import boto3
 
+from course_access import require_course_owner
+from limits import MAX_UPLOAD_BYTES
+
 DOCUMENTS_TABLE = os.environ["DOCUMENTS_TABLE"]
+COURSES_TABLE = os.environ["COURSES_TABLE"]
 UPLOAD_BUCKET = os.environ["UPLOAD_BUCKET"]
 _dynamodb = boto3.resource("dynamodb")
 _table = _dynamodb.Table(DOCUMENTS_TABLE)
+_courses_table = _dynamodb.Table(COURSES_TABLE)
 _s3 = boto3.client("s3")
 
 _CORS_ALLOW_HEADERS = "Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token"
@@ -56,6 +61,11 @@ def lambda_handler(event, context):
         if not course_id:
             return _response(400, {"message": "Missing path parameter: courseId"})
 
+        gate = require_course_owner(_courses_table, course_id, user_sub)
+        if gate:
+            status, body = gate
+            return _response(status, body)
+
         raw_body = event.get("body") or "{}"
         if event.get("isBase64Encoded", False):
             raw_body = base64.b64decode(raw_body).decode("utf-8")
@@ -63,10 +73,20 @@ def lambda_handler(event, context):
 
         file_name = body.get("file_name")
         file_type = body.get("file_type")
+        file_size_bytes = body.get("file_size_bytes")
         if file_name is None or str(file_name).strip() == "":
             return _response(400, {"message": "Field 'file_name' is required"})
         if file_type is None or str(file_type).strip() == "":
             return _response(400, {"message": "Field 'file_type' is required"})
+        try:
+            size_int = int(file_size_bytes)
+        except (TypeError, ValueError):
+            return _response(400, {"message": "Field 'file_size_bytes' must be a non-negative integer"})
+        if size_int < 0 or size_int > MAX_UPLOAD_BYTES:
+            return _response(
+                400,
+                {"message": f"Field 'file_size_bytes' must be between 0 and {MAX_UPLOAD_BYTES}"},
+            )
 
         safe_name = _safe_filename(file_name)
         document_id = str(uuid4())

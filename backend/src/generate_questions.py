@@ -2,15 +2,18 @@ import json
 import logging
 import os
 import re
-import traceback
 from datetime import datetime, timezone
 from uuid import uuid4
 
 import boto3
+from botocore.exceptions import ClientError
+
+from course_access import require_course_owner
 
 DOCUMENTS_TABLE = os.environ["DOCUMENTS_TABLE"]
 QUESTIONS_TABLE = os.environ["QUESTIONS_TABLE"]
 QUESTION_SETS_TABLE = os.environ["QUESTION_SETS_TABLE"]
+COURSES_TABLE = os.environ["COURSES_TABLE"]
 PROCESSED_BUCKET = os.environ["PROCESSED_BUCKET"]
 OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
 OPENAI_MODEL_NAME = os.environ["OPENAI_MODEL_NAME"]
@@ -27,6 +30,7 @@ _lambda = boto3.client("lambda")
 _documents_table = _dynamodb.Table(DOCUMENTS_TABLE)
 _questions_table = _dynamodb.Table(QUESTIONS_TABLE)
 _question_sets_table = _dynamodb.Table(QUESTION_SETS_TABLE)
+_courses_table = _dynamodb.Table(COURSES_TABLE)
 
 _CORS_ALLOW_HEADERS = "Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token"
 
@@ -281,6 +285,51 @@ def _validate_documents(course_id, document_ids, correlation_id):
     return source_keys, None
 
 
+def _rollback_documents_ready(document_ids, correlation_id):
+    for document_id in document_ids:
+        try:
+            _documents_table.update_item(
+                Key={"document_id": document_id},
+                UpdateExpression="SET processing_status = :ready",
+                ExpressionAttributeValues={":ready": "READY"},
+            )
+        except ClientError:
+            logger.warning("cid=%s rollback_ready_failed doc=%s", correlation_id, document_id)
+
+
+def _claim_documents_for_quiz(document_ids, correlation_id):
+    """READY -> GENERATING with conditional updates; rollback prior claims on any failure."""
+    claimed = []
+    for document_id in document_ids:
+        try:
+            _documents_table.update_item(
+                Key={"document_id": document_id},
+                UpdateExpression="SET processing_status = :g",
+                ConditionExpression="attribute_exists(s3_processed_key) AND processing_status = :ready",
+                ExpressionAttributeValues={":g": "GENERATING", ":ready": "READY"},
+            )
+            claimed.append(document_id)
+        except ClientError as exc:
+            if exc.response.get("Error", {}).get("Code") != "ConditionalCheckFailedException":
+                _rollback_documents_ready(claimed, correlation_id)
+                raise
+            _rollback_documents_ready(claimed, correlation_id)
+            logger.info(
+                "cid=%s claim_generating_failed doc=%s prior_claimed=%s",
+                correlation_id,
+                document_id,
+                len(claimed),
+            )
+            return (
+                None,
+                _response(
+                    409,
+                    {"message": "Quiz generation already in progress or documents not ready"},
+                ),
+            )
+    return (claimed, None)
+
+
 def _set_documents_status(document_ids, status, correlation_id):
     for document_id in document_ids:
         _documents_table.update_item(
@@ -367,8 +416,12 @@ def _generate_questions_worker(course_id, document_ids, correlation_id):
         temperature=0.2,
         timeout=60,
     )
-    print(f"DEBUG: Raw AI Response: {completion.choices[0].message.content}")
     raw_response = completion.choices[0].message.content or ""
+    logger.info(
+        "cid=%s openai_response_chars=%s",
+        correlation_id,
+        len(raw_response),
+    )
     valid_questions, discarded_count, cleaned_response = _parse_valid_questions(raw_response)
 
     if not valid_questions:
@@ -442,17 +495,27 @@ def lambda_handler(event, context):
         if event.get("mode") == "worker":
             course_id = event.get("courseId")
             document_ids = event.get("documentIds") or []
+            requested_by = event.get("requestedBy")
             logger.info(
                 "cid=%s worker_start course_id=%s doc_count=%s",
                 correlation_id,
                 course_id,
                 len(document_ids),
             )
+            if requested_by:
+                course_row = _courses_table.get_item(Key={"course_id": course_id}).get("Item") or {}
+                if course_row.get("owner_id") != requested_by:
+                    logger.warning(
+                        "cid=%s worker_rejected owner_mismatch course_id=%s",
+                        correlation_id,
+                        course_id,
+                    )
+                    _set_documents_status(document_ids, "READY", correlation_id)
+                    return {"ok": False}
             try:
                 _generate_questions_worker(course_id, document_ids, correlation_id)
             except Exception:
                 logger.exception("cid=%s worker_failed course_id=%s", correlation_id, course_id)
-                logger.error("cid=%s worker_traceback=%s", correlation_id, traceback.format_exc())
                 _set_documents_status(document_ids, "READY", correlation_id)
                 raise
             return {"ok": True}
@@ -469,18 +532,25 @@ def lambda_handler(event, context):
         document_ids = parsed["document_ids"]
         requested_by = parsed["requested_by"]
         logger.info(
-            "cid=%s api_request_received course_id=%s doc_count=%s requested_by=%s",
+            "cid=%s api_request_received course_id=%s doc_count=%s",
             correlation_id,
             course_id,
             len(document_ids),
-            requested_by,
         )
+
+        gate = require_course_owner(_courses_table, course_id, requested_by)
+        if gate:
+            status, body = gate
+            return _response(status, body)
 
         _, error_response = _validate_documents(course_id, document_ids, correlation_id)
         if error_response:
             return error_response
 
-        _set_documents_status(document_ids, "GENERATING", correlation_id)
+        _, claim_error = _claim_documents_for_quiz(document_ids, correlation_id)
+        if claim_error:
+            return claim_error
+
         worker_payload = {
             "mode": "worker",
             "courseId": course_id,

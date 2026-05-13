@@ -268,6 +268,7 @@ Resources:
       Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/LabRole"
       Environment:
         Variables:
+          COURSES_TABLE: !Ref LimdocsCoursesTable
           DOCUMENTS_TABLE: !Ref DocumentsTable
           UPLOAD_BUCKET: !Ref RawUploadsBucket
       Events:
@@ -288,20 +289,28 @@ Resources:
       Timeout: 300
       # LabRole must include:
       # - s3:GetObject on RawUploadsBucket objects
+      # - s3:HeadObject on RawUploadsBucket (size gate before Textract)
       # - s3:PutObject on ProcessedOutputsBucket objects
       # - textract:AnalyzeDocument or textract:DetectDocumentText
       # - dynamodb:UpdateItem on DocumentsTable
+      ReservedConcurrentExecutions: 2
       Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/LabRole"
       Environment:
         Variables:
           DOCUMENTS_TABLE: !Ref DocumentsTable
           PROCESSED_BUCKET: !Ref ProcessedOutputsBucket
+          UPLOAD_BUCKET: !Ref RawUploadsBucket
       Events:
         S3Event:
           Type: S3
           Properties:
             Bucket: !Ref RawUploadsBucket
             Events: s3:ObjectCreated:*
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: uploads/
 
   GetCourseDocumentsFunction:
     Type: AWS::Serverless::Function
@@ -313,6 +322,7 @@ Resources:
       Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/LabRole"
       Environment:
         Variables:
+          COURSES_TABLE: !Ref LimdocsCoursesTable
           DOCUMENTS_TABLE: !Ref DocumentsTable
           INDEX_NAME: CourseIdIndex
       Events:
@@ -333,6 +343,7 @@ Resources:
       Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/LabRole"
       Environment:
         Variables:
+          COURSES_TABLE: !Ref LimdocsCoursesTable
           DOCUMENTS_TABLE: !Ref DocumentsTable
           UPLOAD_BUCKET: !Ref RawUploadsBucket
           PROCESSED_BUCKET: !Ref ProcessedOutputsBucket
@@ -383,9 +394,11 @@ Resources:
               Resource: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${GenerateQuestionsFunction}"
       # IAM check: LabRole must include lambda:InvokeFunction on this function ARN
       # to support async self-invocation from API mode to worker mode.
+      ReservedConcurrentExecutions: 2
       Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/LabRole"
       Environment:
         Variables:
+          COURSES_TABLE: !Ref LimdocsCoursesTable
           QUESTIONS_TABLE: !Ref QuestionsTable
           QUESTION_SETS_TABLE: !Ref QuestionSetsTable
           DOCUMENTS_TABLE: !Ref DocumentsTable
@@ -410,6 +423,7 @@ Resources:
       Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/LabRole"
       Environment:
         Variables:
+          COURSES_TABLE: !Ref LimdocsCoursesTable
           QUESTION_SETS_TABLE: !Ref QuestionSetsTable
           QUESTIONS_TABLE: !Ref QuestionsTable
           QUESTION_SETS_COURSE_INDEX: CourseIdCreatedAtIndex

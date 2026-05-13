@@ -11,6 +11,7 @@ import {
   getCourseDocuments,
   getQuestionSetDetails,
   getQuestionSets,
+  MAX_UPLOAD_BYTES,
   getUploadUrl,
   uploadFileToS3,
 } from '../services/documentsService.js'
@@ -58,7 +59,9 @@ export default function CoursePage() {
   const { courseId: courseIdParam } = useParams()
   const { t, lang, setLang, dir, tx } = useLanguageControl()
   const [authStatus, setAuthStatus] = useState('loading')
-  const [activeTab, setActiveTab] = useState('materials')
+  const [activeTab, setActiveTab] = useState(() =>
+    searchParams.get('tab') === 'questionSets' ? 'questionSets' : 'materials',
+  )
   const [documents, setDocuments] = useState([])
   const [documentsLoading, setDocumentsLoading] = useState(false)
   const [documentsError, setDocumentsError] = useState(null)
@@ -85,7 +88,10 @@ export default function CoursePage() {
   const [questionSets, setQuestionSets] = useState([])
   const [questionSetsLoading, setQuestionSetsLoading] = useState(false)
   const [questionSetsError, setQuestionSetsError] = useState(null)
-  const [selectedQuestionSet, setSelectedQuestionSet] = useState(null)
+  const [selectedQuestionSet, setSelectedQuestionSet] = useState(() => {
+    const setId = searchParams.get('set')
+    return setId ? { set_id: setId } : null
+  })
   const [setQuestions, setSetQuestions] = useState([])
   const [setQuestionsLoading, setSetQuestionsLoading] = useState(false)
   const [setQuestionsError, setSetQuestionsError] = useState(null)
@@ -341,9 +347,24 @@ export default function CoursePage() {
 
       for (let i = 0; i < total; i++) {
         const file = filesSnapshot[i]
+        if (file.size > MAX_UPLOAD_BYTES) {
+          setUploadError(
+            tx(t.coursePage.uploadFileTooLarge, {
+              name: file.name,
+              max: formatFileSize(MAX_UPLOAD_BYTES),
+            }),
+          )
+          return
+        }
         setUploadProgress({ current: i + 1, total })
         const fileType = file.type || 'application/octet-stream'
-        const { upload_url: uploadUrl } = await getUploadUrl(courseId, file.name, fileType, idToken)
+        const { upload_url: uploadUrl } = await getUploadUrl(
+          courseId,
+          file.name,
+          fileType,
+          file.size,
+          idToken,
+        )
         await uploadFileToS3(uploadUrl, file, fileType)
       }
 
@@ -365,7 +386,7 @@ export default function CoursePage() {
       setIsUploading(false)
       setUploadProgress(null)
     }
-  }, [courseId, isUploading, loadDocuments, selectedFiles, t])
+  }, [courseId, isUploading, loadDocuments, selectedFiles, t, tx])
 
   useEffect(() => {
     let cancelled = false
@@ -751,6 +772,7 @@ export default function CoursePage() {
                   <button
                     type="button"
                     className="course-page__upload-btn"
+                    disabled={isUploading || isGeneratingQuiz}
                     onClick={() => {
                       setUploadError(null)
                       setUploadSuccess(false)

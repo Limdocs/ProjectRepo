@@ -4,12 +4,15 @@ import os
 
 import boto3
 
+from course_access import require_course_owner
 
 DOCUMENTS_TABLE = os.environ["DOCUMENTS_TABLE"]
+COURSES_TABLE = os.environ["COURSES_TABLE"]
 UPLOAD_BUCKET = os.environ["UPLOAD_BUCKET"]
 PROCESSED_BUCKET = os.environ["PROCESSED_BUCKET"]
 _dynamodb = boto3.resource("dynamodb")
 _table = _dynamodb.Table(DOCUMENTS_TABLE)
+_courses_table = _dynamodb.Table(COURSES_TABLE)
 _s3 = boto3.client("s3")
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -34,14 +37,14 @@ def _delete_object_safe(bucket, key):
     if not key:
         return
     try:
-        logger.info("Deleting S3 object bucket=%s key=%s", bucket, key)
+        logger.info("Deleting S3 object bucket=%s key_len=%s", bucket, len(key))
         _s3.delete_object(Bucket=bucket, Key=key)
     except Exception as exc:
         # Missing objects should not block metadata cleanup; log and continue.
         logger.warning(
-            "Failed deleting S3 object bucket=%s key=%s error=%s",
+            "Failed deleting S3 object bucket=%s key_len=%s error=%s",
             bucket,
-            key,
+            len(key),
             str(exc),
         )
 
@@ -70,12 +73,17 @@ def lambda_handler(event, context):
         if not document_id:
             return _response(400, {"message": "Missing path parameter: documentId"})
 
+        gate = require_course_owner(_courses_table, course_id, sub)
+        if gate:
+            status, body = gate
+            return _response(status, body)
+
         result = _table.get_item(Key={"document_id": document_id})
         item = result.get("Item")
         if not item:
             return _response(404, {"message": "Document not found"})
 
-        if item.get("uploader_user_name") != sub or item.get("course_id") != course_id:
+        if item.get("course_id") != course_id:
             return _response(403, {"message": "Forbidden"})
 
         s3_raw_key = item.get("s3_raw_key")

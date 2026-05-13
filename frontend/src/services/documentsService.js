@@ -67,13 +67,20 @@ export async function deleteDocument(courseId, documentId, idToken) {
 }
 
 /**
+ * Max upload size aligned with backend `limits.MAX_UPLOAD_BYTES` / `generate_upload_url`.
+ * Keep in sync with backend `backend/src/limits.py`.
+ */
+export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024
+
+/**
  * @param {string} courseId
  * @param {string} fileName
  * @param {string} fileType MIME type (must match S3 PUT Content-Type)
+ * @param {number} fileSizeBytes
  * @param {string} idToken Cognito ID token (JWT)
  * @returns {Promise<{ upload_url: string, document_id: string, s3_key: string }>}
  */
-export async function getUploadUrl(courseId, fileName, fileType, idToken) {
+export async function getUploadUrl(courseId, fileName, fileType, fileSizeBytes, idToken) {
   if (!apiBaseUrl) {
     throw new Error('API is not configured. Set VITE_API_URL.')
   }
@@ -83,10 +90,13 @@ export async function getUploadUrl(courseId, fileName, fileType, idToken) {
   if (!idToken) {
     throw new Error('Missing idToken.')
   }
+  if (typeof fileSizeBytes !== 'number' || !Number.isFinite(fileSizeBytes) || fileSizeBytes < 0) {
+    throw new Error('Missing or invalid fileSizeBytes.')
+  }
 
   const response = await axios.post(
     `${apiBaseUrl}/courses/${encodeURIComponent(courseId)}/upload-url`,
-    { file_name: fileName, file_type: fileType },
+    { file_name: fileName, file_type: fileType, file_size_bytes: fileSizeBytes },
     {
       headers: {
         Authorization: `Bearer ${idToken}`,

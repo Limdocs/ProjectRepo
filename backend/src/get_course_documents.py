@@ -4,11 +4,14 @@ import os
 import boto3
 from boto3.dynamodb.conditions import Key
 
+from course_access import require_course_owner
 
 DOCUMENTS_TABLE = os.environ["DOCUMENTS_TABLE"]
+COURSES_TABLE = os.environ["COURSES_TABLE"]
 INDEX_NAME = os.environ["INDEX_NAME"]
 _dynamodb = boto3.resource("dynamodb")
 _table = _dynamodb.Table(DOCUMENTS_TABLE)
+_courses_table = _dynamodb.Table(COURSES_TABLE)
 
 _CORS_ALLOW_HEADERS = "Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token"
 
@@ -42,12 +45,18 @@ def lambda_handler(event, context):
             .get("authorizer", {})
             .get("claims", {})
         )
-        if not claims.get("sub"):
+        user_sub = claims.get("sub")
+        if not user_sub:
             return _response(401, {"message": "Unauthorized: missing user identity"})
 
         course_id = event.get("pathParameters", {}).get("courseId")
         if not course_id:
             return _response(400, {"message": "Missing path parameter: courseId"})
+
+        gate = require_course_owner(_courses_table, course_id, user_sub)
+        if gate:
+            status, body = gate
+            return _response(status, body)
 
         query_result = _table.query(
             IndexName=INDEX_NAME,

@@ -2,10 +2,10 @@
 
 **Transforming Raw Academic Materials into Interactive AI-Powered Learning Experiences.**
 
-![AWS Serverless](https://img.shields.io/badge/AWS-Serverless-orange)
-![React Vite](https://img.shields.io/badge/React-Vite-61DAFB)
-![OpenAI LLM](https://img.shields.io/badge/OpenAI-LLM-412991)
-![License MIT](https://img.shields.io/badge/License-MIT-green)
+AWS Serverless
+React Vite
+OpenAI LLM
+License MIT
 
 ---
 
@@ -35,21 +35,25 @@ Users manage courses, upload files securely, run automated AI extraction pipelin
 ## Key Features
 
 ### 1) Bilingual Mastery
+
 - Full **RTL/LTR** experience for **Hebrew/English**
 - Persisted language preference across sessions
 - Consistent localization across auth, dashboard, and course workflows
 
 ### 2) AI-Driven Pipeline
+
 - Automated document analysis powered by **Amazon Textract**
 - Asynchronous extraction flow for large/scanned academic files
 - Processing-state lifecycle management (`UPLOADED`, `EXTRACTED`, `FAILED`)
 
 ### 3) Smart Course Management
+
 - Dedicated **Course Space** per course
 - Structured materials list with metadata and status visibility
 - Foundation for generated practice sets and adaptive study loops
 
 ### 4) Real-time Feedback
+
 - Live polling on course documents while processing is in progress
 - Automatic UI refresh when statuses transition to final states
 - No page reload required for status visibility
@@ -165,3 +169,4 @@ Recommended prerequisites:
 
 - Design document: `docs/design.md`
 - Engineering progress log: `docs/progress.log.md`
+
