@@ -525,6 +525,49 @@ Resources:
             Path: /courses/{courseId}/question-sets/{setId}/attempts
             Method: post
 
+  GetCourseAttemptsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: limdocs-get-course-attempts
+      CodeUri: src/
+      Handler: get_course_attempts.lambda_handler
+      Runtime: python3.9
+      # LabRole must include dynamodb:Query on attempts table.
+      Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/LabRole"
+      Environment:
+        Variables:
+          COURSES_TABLE: !Ref LimdocsCoursesTable
+          ATTEMPTS_TABLE: !Ref AttemptsTable
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref LimdocsApi
+            Path: /courses/{courseId}/attempts
+            Method: get
+
+  GetAttemptAnswersFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: limdocs-get-attempt-answers
+      CodeUri: src/
+      Handler: get_attempt_answers.lambda_handler
+      Runtime: python3.9
+      # LabRole must include dynamodb:Query on attempts and attempt_answers tables.
+      Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/LabRole"
+      Environment:
+        Variables:
+          COURSES_TABLE: !Ref LimdocsCoursesTable
+          ATTEMPTS_TABLE: !Ref AttemptsTable
+          ATTEMPT_ANSWERS_TABLE: !Ref AttemptAnswersTable
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref LimdocsApi
+            Path: /courses/{courseId}/attempts/{attemptId}/answers
+            Method: get
+
 Outputs:
   UserPoolId:
     Description: Cognito User Pool ID

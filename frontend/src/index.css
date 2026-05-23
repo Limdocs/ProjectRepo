@@ -112,6 +112,9 @@
   --danger-bg: #fdf2f2;
   --danger-border: #e5bcbc;
   --danger-strong: #991b1b;
+  --warning-fg: #854d0e;
+  --warning-bg: #fffbeb;
+  --warning-border: #fcd34d;
 
   /* Layered neutrals & status chips (avoid raw rgba in page CSS) */
   --neutral-row-hover-bg: color-mix(in srgb, var(--text-primary) 4.2%, var(--surface-elevated));
@@ -136,6 +139,9 @@
   --danger-ghost-btn-bg: color-mix(in srgb, var(--surface-elevated) 90%, var(--danger-strong));
   --danger-ghost-btn-hover-bg: color-mix(in srgb, var(--danger-bg) 88%, var(--danger-strong));
   --danger-ghost-btn-hover-border: color-mix(in srgb, var(--danger-strong) 42%, var(--surface-elevated));
+
+  --warning-surface-ghost: color-mix(in srgb, var(--warning-fg) 10%, var(--surface-elevated));
+  --warning-edge-soft: color-mix(in srgb, var(--warning-fg) 24%, var(--surface-elevated));
 
   /* Legacy / shared aliases */
   --text: var(--text-secondary);

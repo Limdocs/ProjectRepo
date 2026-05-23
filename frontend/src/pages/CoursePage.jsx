@@ -3,7 +3,13 @@ import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from '
 import { fetchAuthSession, getCurrentUser } from 'aws-amplify/auth'
 import './CoursePage.css'
 import { useLanguageControl } from '../language-control/LanguageControlProvider.jsx'
-import { deleteCourse, getUserCourses, submitAttempt } from '../services/coursesService.js'
+import {
+  deleteCourse,
+  getAttemptAnswers,
+  getCourseAttempts,
+  getUserCourses,
+  submitAttempt,
+} from '../services/coursesService.js'
 import {
   deleteDocument,
   deleteQuestionSet,
@@ -52,6 +58,200 @@ function normalizeProcessingStatus(status) {
   return String(status ?? '').trim().toUpperCase()
 }
 
+function resolveQuestionSetLabel(setId, questionSets) {
+  const match = questionSets.find((s) => s.set_id === setId)
+  return match?.title ?? match?.name ?? match?.set_name ?? setId ?? '—'
+}
+
+function formatTimeSpent(seconds, labels, txFn) {
+  if (seconds == null || seconds < 0) return '—'
+  const mins = Math.floor(seconds / 60)
+  const secs = seconds % 60
+  if (mins === 0) return txFn(labels.attemptTimeSecondsOnly, { seconds: secs })
+  return txFn(labels.attemptTimeMinutesSeconds, { minutes: mins, seconds: secs })
+}
+
+function getScoreTier(score) {
+  if (score === undefined || score === null || score === '—') return null
+  const numericScore = Number(score)
+  if (Number.isNaN(numericScore)) return null
+  if (numericScore >= 80) return 'high'
+  if (numericScore >= 60) return 'medium'
+  return 'low'
+}
+
+function mapAttemptAnswersToPractice(questions, answersByQuestionId) {
+  const mapped = {}
+  for (const question of questions) {
+    const qid = String(question.question_id ?? question.questionId ?? '')
+    if (!qid) continue
+    const raw = answersByQuestionId[qid]
+    if (raw === undefined || raw === null) continue
+    mapped[qid] = Number(raw)
+  }
+  return mapped
+}
+
+function QuestionSetPreviewCard({
+  setItem,
+  labels,
+  lang,
+  formatDocumentDateFn,
+  formatDifficultySummaryFn,
+  onStartAttempt,
+  onDelete,
+  isStarting,
+  startDisabled,
+  deleteAriaLabel,
+}) {
+  const title = setItem.name || setItem.set_name || labels.questionSetUntitled
+
+  return (
+    <article className="course-page__set-card course-page__set-preview">
+      <div className="course-page__set-preview-toolbar">
+        <button
+          type="button"
+          className="course-page__set-delete-btn course-page__set-delete-btn--inline"
+          onClick={onDelete}
+          aria-label={deleteAriaLabel}
+        >
+          <span aria-hidden>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+              <path
+                d="M9 3.75h6m-7.5 3h9m-7.5 3.75v7.5m3-7.5v7.5m4.875-10.5-.662 9.272A2.25 2.25 0 0 1 13.97 21h-3.94a2.25 2.25 0 0 1-2.243-2.028L7.125 7.5"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </span>
+        </button>
+      </div>
+      <div className="course-page__set-preview-body">
+        <p className="course-page__set-card-title">{title}</p>
+        <p className="course-page__set-card-meta">{formatDocumentDateFn(setItem.created_at, lang)}</p>
+        <p className="course-page__set-card-meta">{formatDifficultySummaryFn(setItem)}</p>
+        {Array.isArray(setItem.source_document_names) && setItem.source_document_names.length > 0 ? (
+          <p className="course-page__set-card-meta course-page__set-card-meta--sources">
+            {setItem.source_document_names.join(', ')}
+          </p>
+        ) : null}
+        <button
+          type="button"
+          className="course-page__start-attempt-btn"
+          onClick={onStartAttempt}
+          disabled={startDisabled}
+        >
+          {isStarting ? labels.questionSetLoading : labels.startAttempt}
+        </button>
+      </div>
+    </article>
+  )
+}
+
+function QuestionReviewList({
+  questions,
+  practiceAnswers,
+  questionMode,
+  labels,
+  onAnswerSelect,
+  isSubmittingAttempt,
+  onCancelAttempt,
+  onSubmitQuiz,
+  onBack,
+  backLabel,
+}) {
+  const isPractice = questionMode === 'practice'
+  const shouldReveal = questionMode === 'results'
+
+  return (
+    <>
+      <ol className="course-page__question-list">
+        {questions.map((question, index) => {
+          const qid = String(question.question_id ?? question.questionId ?? `q-${index}`)
+          const selectedIndex = practiceAnswers[qid]
+          return (
+            <li key={qid} className="course-page__question-card">
+              <p className="course-page__question-title">{question.question}</p>
+              <ul className="course-page__question-options">
+                {(Array.isArray(question.options) ? question.options : []).map((opt, optIndex) => {
+                  const correctIndex = Number(question.correct_index)
+                  const isCorrectOption = optIndex === correctIndex
+                  const isIncorrectSelection =
+                    shouldReveal &&
+                    selectedIndex !== undefined &&
+                    selectedIndex === optIndex &&
+                    selectedIndex !== correctIndex
+                  const isSelectedInPractice = isPractice && selectedIndex === optIndex
+                  const optionClassName = [
+                    'course-page__question-option',
+                    shouldReveal && isCorrectOption ? 'course-page__question-option--correct' : '',
+                    isIncorrectSelection ? 'course-page__question-option--incorrect' : '',
+                    isSelectedInPractice ? 'course-page__question-option--selected' : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' ')
+                  return (
+                    <li key={`${qid}-${optIndex}`}>
+                      <button
+                        type="button"
+                        className={optionClassName}
+                        onClick={() => {
+                          if (!isPractice || !onAnswerSelect) return
+                          onAnswerSelect(qid, optIndex)
+                        }}
+                        disabled={!isPractice}
+                      >
+                        {String.fromCharCode(65 + optIndex)}. {opt}
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
+              {shouldReveal ? (
+                <>
+                  <p className="course-page__question-answer">
+                    {labels.correctAnswer}: {(question.options || [])[Number(question.correct_index)]}
+                  </p>
+                  <p className="course-page__question-explanation">
+                    {labels.aiExplanation}: {question.explanation}
+                  </p>
+                </>
+              ) : null}
+            </li>
+          )
+        })}
+      </ol>
+      {isPractice && questions.length > 0 ? (
+        <div className="course-page__quiz-actions">
+          <button
+            type="button"
+            className="course-page__cancel-attempt-btn"
+            onClick={onCancelAttempt}
+            disabled={isSubmittingAttempt}
+          >
+            {labels.cancelAttempt}
+          </button>
+          <button
+            type="button"
+            className="course-page__submit-quiz-btn"
+            onClick={onSubmitQuiz}
+            disabled={isSubmittingAttempt || Object.keys(practiceAnswers).length === 0}
+          >
+            {isSubmittingAttempt ? labels.submitQuizSubmitting : labels.submitQuiz}
+          </button>
+        </div>
+      ) : null}
+      {shouldReveal && onBack && backLabel ? (
+        <button type="button" className="course-page__back-to-sets-btn" onClick={onBack}>
+          {backLabel}
+        </button>
+      ) : null}
+    </>
+  )
+}
+
 export default function CoursePage() {
   const navigate = useNavigate()
   const location = useLocation()
@@ -59,9 +259,12 @@ export default function CoursePage() {
   const { courseId: courseIdParam } = useParams()
   const { t, lang, setLang, dir, tx } = useLanguageControl()
   const [authStatus, setAuthStatus] = useState('loading')
-  const [activeTab, setActiveTab] = useState(() =>
-    searchParams.get('tab') === 'questionSets' ? 'questionSets' : 'materials',
-  )
+  const [activeTab, setActiveTab] = useState(() => {
+    const tab = searchParams.get('tab')
+    if (tab === 'questionSets') return 'questionSets'
+    if (tab === 'attempts') return 'attempts'
+    return 'materials'
+  })
   const [documents, setDocuments] = useState([])
   const [documentsLoading, setDocumentsLoading] = useState(false)
   const [documentsError, setDocumentsError] = useState(null)
@@ -95,15 +298,23 @@ export default function CoursePage() {
   const [setQuestions, setSetQuestions] = useState([])
   const [setQuestionsLoading, setSetQuestionsLoading] = useState(false)
   const [setQuestionsError, setSetQuestionsError] = useState(null)
-  const [questionMode, setQuestionMode] = useState('review')
+  const [questionMode, setQuestionMode] = useState(null)
   const [practiceAnswers, setPracticeAnswers] = useState({})
   const [practiceStartTime, setPracticeStartTime] = useState(null)
   const [isSubmittingAttempt, setIsSubmittingAttempt] = useState(false)
   const [setPendingDelete, setSetPendingDelete] = useState(null)
   const [isDeletingSet, setIsDeletingSet] = useState(false)
   const [questionSetsNotice, setQuestionSetsNotice] = useState(null)
+  const [lastSubmittedScore, setLastSubmittedScore] = useState(null)
+  const [startingSetId, setStartingSetId] = useState(null)
+  const [attempts, setAttempts] = useState([])
+  const [isAttemptsLoading, setIsAttemptsLoading] = useState(false)
+  const [attemptsError, setAttemptsError] = useState(null)
+  const [viewingPastAttempt, setViewingPastAttempt] = useState(null)
+  const [loadingAttemptId, setLoadingAttemptId] = useState(null)
   const fileInputRef = useRef(null)
   const dragDepthRef = useRef(0)
+  const skipSetAutoLoadRef = useRef(false)
 
   const initialCourseName =
     typeof location.state?.courseName === 'string' ? location.state.courseName.trim() : ''
@@ -210,8 +421,8 @@ export default function CoursePage() {
   }, [courseId, t])
 
   const loadQuestionSetDetails = useCallback(
-    async (setId) => {
-      if (!courseId || !setId) return
+    async (setId, { startPractice = false } = {}) => {
+      if (!courseId || !setId) return false
       setSetQuestionsLoading(true)
       setSetQuestionsError(null)
       try {
@@ -220,13 +431,26 @@ export default function CoursePage() {
         if (!idToken) {
           setSetQuestions([])
           setSetQuestionsError(t.coursePage.uploadMissingSession)
-          return
+          return false
         }
         const payload = await getQuestionSetDetails(courseId, setId, idToken)
+        const questions = Array.isArray(payload?.questions) ? payload.questions : []
         setSelectedQuestionSet(payload?.set ?? null)
-        setSetQuestions(Array.isArray(payload?.questions) ? payload.questions : [])
+        setSetQuestions(questions)
         setPracticeAnswers({})
-        setPracticeStartTime(null)
+        if (startPractice) {
+          if (questions.length === 0) {
+            setQuestionMode(null)
+            setPracticeStartTime(null)
+            return false
+          }
+          setQuestionMode('practice')
+          setPracticeStartTime(Date.now())
+        } else {
+          setQuestionMode(null)
+          setPracticeStartTime(null)
+        }
+        return true
       } catch (err) {
         const apiMsg = err?.response?.data?.message
         setSetQuestionsError(
@@ -234,12 +458,40 @@ export default function CoursePage() {
             ? apiMsg.trim()
             : t.coursePage.questionSetLoadError,
         )
+        return false
       } finally {
         setSetQuestionsLoading(false)
       }
     },
     [courseId, t],
   )
+
+  const loadCourseAttempts = useCallback(async () => {
+    if (!courseId) return
+    setIsAttemptsLoading(true)
+    setAttemptsError(null)
+    try {
+      const session = await fetchAuthSession()
+      const idToken = session.tokens?.idToken?.toString()
+      if (!idToken) {
+        setAttempts([])
+        setAttemptsError(t.coursePage.uploadMissingSession)
+        return
+      }
+      const rows = await getCourseAttempts(courseId, idToken)
+      setAttempts(rows)
+    } catch (err) {
+      const apiMsg = err?.response?.data?.message
+      setAttemptsError(
+        typeof apiMsg === 'string' && apiMsg.trim()
+          ? apiMsg.trim()
+          : t.coursePage.attemptsLoadError,
+      )
+      setAttempts([])
+    } finally {
+      setIsAttemptsLoading(false)
+    }
+  }, [courseId, t])
 
   useEffect(() => {
     if (authStatus !== 'authed' || !courseId || activeTab !== 'materials') return
@@ -252,9 +504,145 @@ export default function CoursePage() {
   }, [authStatus, courseId, activeTab, loadQuestionSets])
 
   useEffect(() => {
+    if (skipSetAutoLoadRef.current) return
     if (authStatus !== 'authed' || activeTab !== 'questionSets' || !selectedQuestionSet?.set_id) return
+    if (questionMode === 'practice' || questionMode === 'results') return
     loadQuestionSetDetails(selectedQuestionSet.set_id)
-  }, [authStatus, activeTab, selectedQuestionSet?.set_id, loadQuestionSetDetails])
+  }, [
+    authStatus,
+    activeTab,
+    selectedQuestionSet?.set_id,
+    questionMode,
+    loadQuestionSetDetails,
+  ])
+
+  useEffect(() => {
+    if (authStatus !== 'authed' || !courseId || activeTab !== 'attempts') return
+    loadCourseAttempts()
+    if (questionSets.length === 0) {
+      loadQuestionSets()
+    }
+  }, [authStatus, courseId, activeTab, loadCourseAttempts, loadQuestionSets, questionSets.length])
+
+  useEffect(() => {
+    if (activeTab !== 'attempts') return
+    setSelectedQuestionSet(null)
+    if (!viewingPastAttempt) {
+      setSetQuestions([])
+      setSetQuestionsError(null)
+    }
+  }, [activeTab, viewingPastAttempt])
+
+  const handleExitPastAttemptView = useCallback(() => {
+    setViewingPastAttempt(null)
+    setLoadingAttemptId(null)
+    setPracticeAnswers({})
+    setSetQuestions([])
+    setQuestionMode(null)
+    setSetQuestionsError(null)
+    setSetQuestionsLoading(false)
+  }, [])
+
+  useEffect(() => {
+    if (activeTab === 'attempts') return
+    if (!viewingPastAttempt) return
+    handleExitPastAttemptView()
+  }, [activeTab, viewingPastAttempt, handleExitPastAttemptView])
+
+  useEffect(() => {
+    if (activeTab === 'questionSets') return
+
+    setQuestionSetsNotice(null)
+    setLastSubmittedScore(null)
+
+    if (questionMode !== 'results') return
+
+    // Past-attempt review on the attempts tab also uses questionMode === 'results'.
+    if (activeTab === 'attempts' && viewingPastAttempt) return
+
+    setSelectedQuestionSet(null)
+    setSetQuestions([])
+    setQuestionMode(null)
+    setPracticeAnswers({})
+    setPracticeStartTime(null)
+  }, [activeTab, questionMode, viewingPastAttempt])
+
+  const loadPastAttemptReview = useCallback(
+    async (attempt) => {
+      const attemptId = String(attempt?.attempt_id ?? '').trim()
+      const setId = String(attempt?.question_set_id ?? '').trim()
+      if (!courseId || !attemptId || !setId) return
+
+      setViewingPastAttempt(attempt)
+      setSetQuestionsLoading(true)
+      setSetQuestionsError(null)
+      setLoadingAttemptId(attemptId)
+      try {
+        const session = await fetchAuthSession()
+        const idToken = session.tokens?.idToken?.toString()
+        if (!idToken) {
+          setSetQuestionsError(t.coursePage.uploadMissingSession)
+          return
+        }
+
+        const [setPayload, answers] = await Promise.all([
+          getQuestionSetDetails(courseId, setId, idToken),
+          getAttemptAnswers(courseId, attemptId, idToken),
+        ])
+        const questions = Array.isArray(setPayload?.questions) ? setPayload.questions : []
+        setSetQuestions(questions)
+        setPracticeAnswers(mapAttemptAnswersToPractice(questions, answers))
+        setQuestionMode('results')
+      } catch (err) {
+        const apiMsg = err?.response?.data?.message
+        setSetQuestionsError(
+          typeof apiMsg === 'string' && apiMsg.trim()
+            ? apiMsg.trim()
+            : t.coursePage.pastAttemptLoadError,
+        )
+        setQuestionMode(null)
+      } finally {
+        setSetQuestionsLoading(false)
+        setLoadingAttemptId(null)
+      }
+    },
+    [courseId, t],
+  )
+
+  const handleViewPastAttempt = useCallback(
+    (attempt) => {
+      if (setQuestionsLoading || loadingAttemptId) return
+      const attemptId = String(attempt?.attempt_id ?? '').trim()
+      const setId = String(attempt?.question_set_id ?? '').trim()
+      if (!attemptId || !setId) return
+      loadPastAttemptReview(attempt)
+    },
+    [setQuestionsLoading, loadingAttemptId, loadPastAttemptReview],
+  )
+
+  const handleStartAttemptFromSet = useCallback(
+    async (setItem) => {
+      const setId = setItem?.set_id
+      if (!courseId || !setId || startingSetId) return
+
+      setStartingSetId(setId)
+      setSetQuestionsError(null)
+      setQuestionSetsNotice(null)
+      setLastSubmittedScore(null)
+      setSelectedQuestionSet(setItem)
+
+      skipSetAutoLoadRef.current = true
+      const started = await loadQuestionSetDetails(setId, { startPractice: true })
+      skipSetAutoLoadRef.current = false
+
+      if (!started) {
+        setSelectedQuestionSet(null)
+        setSetQuestions([])
+      }
+      setStartingSetId(null)
+    },
+    [courseId, startingSetId, loadQuestionSetDetails],
+  )
 
   const eligibleDocIds = documents.reduce((acc, doc, index) => {
     const id = String(doc.document_id ?? doc.documentId ?? `doc-${index}`)
@@ -411,13 +799,12 @@ export default function CoursePage() {
     const setParam = searchParams.get('set')
     if (tabParam === 'questionSets' && activeTab !== 'questionSets') {
       setActiveTab('questionSets')
-    } else if (tabParam !== 'questionSets' && activeTab !== 'materials') {
+    } else if (tabParam === 'attempts' && activeTab !== 'attempts') {
+      setActiveTab('attempts')
+    } else if (!tabParam && activeTab !== 'materials') {
       setActiveTab('materials')
     }
-    if (setParam && setParam !== selectedQuestionSet?.set_id) {
-      setSelectedQuestionSet((prev) => (prev?.set_id === setParam ? prev : { set_id: setParam }))
-    }
-    if (!setParam && selectedQuestionSet?.set_id) {
+    if (!setParam && selectedQuestionSet?.set_id && questionMode !== 'practice' && questionMode !== 'results') {
       setSelectedQuestionSet(null)
       setSetQuestions([])
       setSetQuestionsError(null)
@@ -443,6 +830,9 @@ export default function CoursePage() {
       } else {
         nextParams.delete('set')
       }
+    } else if (activeTab === 'attempts') {
+      nextParams.set('tab', 'attempts')
+      nextParams.delete('set')
     } else {
       nextParams.delete('tab')
       nextParams.delete('set')
@@ -510,6 +900,10 @@ export default function CoursePage() {
   const materialsCount = documents.length
   const showDocList = !documentsLoading && !documentsError && documents.length > 0
   const showDocEmpty = !documentsLoading && !documentsError && documents.length === 0
+  const inQuizSession = questionMode === 'practice' || questionMode === 'results'
+  const showQuestionSetDetail = Boolean(
+    selectedQuestionSet && (inQuizSession || setQuestionsLoading),
+  )
 
   const handleDeleteClick = (doc, id) => {
     if (deletingDocId) return
@@ -645,24 +1039,19 @@ export default function CoursePage() {
     })
   }
 
-  const handleOpenSet = (setItem) => {
-    setQuestionMode('review')
+  const handleCloseQuestionSet = () => {
+    setSelectedQuestionSet(null)
+    setSetQuestions([])
+    setQuestionMode(null)
     setPracticeAnswers({})
     setPracticeStartTime(null)
     setSetQuestionsError(null)
-    setSelectedQuestionSet(setItem)
+    setQuestionSetsNotice(null)
+    setLastSubmittedScore(null)
   }
 
-  const handleEnterPracticeMode = () => {
-    setQuestionMode('practice')
-    setPracticeAnswers({})
-    setPracticeStartTime(Date.now())
-    setSetQuestionsError(null)
-  }
-
-  const handleEnterReviewMode = () => {
-    setQuestionMode('review')
-    setPracticeStartTime(null)
+  const handleCancelAttempt = () => {
+    handleCloseQuestionSet()
   }
 
   const handleSubmitQuiz = async () => {
@@ -692,13 +1081,16 @@ export default function CoursePage() {
       )
 
       const score = result?.score
+      const displayScore = score !== undefined && score !== null ? score : '—'
+      setLastSubmittedScore(displayScore)
       setQuestionSetsNotice(
         tx(t.coursePage.submitQuizSuccess, {
-          score: score !== undefined && score !== null ? score : '—',
+          score: displayScore,
         }),
       )
-      setQuestionMode('review')
+      setQuestionMode('results')
       setPracticeStartTime(null)
+      await loadCourseAttempts()
     } catch (err) {
       const apiMsg = err?.response?.data?.message
       if (typeof apiMsg === 'string' && apiMsg.trim()) {
@@ -805,6 +1197,16 @@ export default function CoursePage() {
               aria-current={activeTab === 'questionSets' ? 'page' : undefined}
             >
               {t.coursePage.tabQuestionSets}
+            </button>
+            <button
+              type="button"
+              className={`course-page__inner-nav-item ${
+                activeTab === 'attempts' ? 'course-page__inner-nav-item--active' : ''
+              }`}
+              onClick={() => setActiveTab('attempts')}
+              aria-current={activeTab === 'attempts' ? 'page' : undefined}
+            >
+              {t.coursePage.tabAttempts}
             </button>
           </div>
         </nav>
@@ -990,11 +1392,16 @@ export default function CoursePage() {
                 </p>
               ) : null}
               {questionSetsNotice ? (
-                <p className="course-page__documents-notice" role="status">
+                <p
+                  className={`course-page__score-notice course-page__score-notice--${
+                    getScoreTier(lastSubmittedScore) ?? 'high'
+                  }`}
+                  role="status"
+                >
                   {questionSetsNotice}
                 </p>
               ) : null}
-              {!selectedQuestionSet ? (
+              {!showQuestionSetDetail ? (
                 <>
                   {questionSetsLoading ? (
                     <div className="course-page__documents-skeleton" aria-busy="true">
@@ -1006,50 +1413,34 @@ export default function CoursePage() {
                     <p className="course-page__materials-empty">{t.coursePage.questionSetsEmpty}</p>
                   ) : null}
                   {!questionSetsLoading && questionSets.length > 0 ? (
-                    <ul className="course-page__set-list">
-                      {questionSets.map((setItem) => (
-                        <li key={setItem.set_id} className="course-page__set-card">
-                          <button
-                            type="button"
-                            className="course-page__set-card-open"
-                            onClick={() => handleOpenSet(setItem)}
-                          >
-                            <p className="course-page__set-card-title">
-                              {setItem.name || setItem.set_name || t.coursePage.questionSetUntitled}
-                            </p>
-                            <p className="course-page__set-card-meta">
-                              {formatDocumentDate(setItem.created_at, lang)}
-                            </p>
-                            <p className="course-page__set-card-meta">{formatDifficultySummary(setItem)}</p>
-                            {Array.isArray(setItem.source_document_names) &&
-                            setItem.source_document_names.length > 0 ? (
-                              <p className="course-page__set-card-meta">
-                                {setItem.source_document_names.join(', ')}
-                              </p>
-                            ) : null}
-                          </button>
-                          <button
-                            type="button"
-                            className="course-page__set-delete-btn"
-                            onClick={() => setSetPendingDelete(setItem)}
-                            aria-label={tx(t.coursePage.deleteSetAria, {
-                              name: setItem.name || setItem.set_name || t.coursePage.questionSetUntitled,
-                            })}
-                          >
-                            <span aria-hidden>
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-                                <path
-                                  d="M9 3.75h6m-7.5 3h9m-7.5 3.75v7.5m3-7.5v7.5m4.875-10.5-.662 9.272A2.25 2.25 0 0 1 13.97 21h-3.94a2.25 2.25 0 0 1-2.243-2.028L7.125 7.5"
-                                  stroke="currentColor"
-                                  strokeWidth="1.5"
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                />
-                              </svg>
-                            </span>
-                          </button>
-                        </li>
-                      ))}
+                    <ul className="course-page__set-list course-page__set-list--preview">
+                      {questionSets.map((setItem) => {
+                        const setId = setItem.set_id
+                        const questionCount = Number(
+                          setItem.question_count ?? setItem.questionCount ?? 0,
+                        )
+                        return (
+                          <li key={setId} className="course-page__set-list-item">
+                            <QuestionSetPreviewCard
+                              setItem={setItem}
+                              labels={t.coursePage}
+                              lang={lang}
+                              formatDocumentDateFn={formatDocumentDate}
+                              formatDifficultySummaryFn={formatDifficultySummary}
+                              isStarting={startingSetId === setId}
+                              startDisabled={Boolean(startingSetId) || questionCount === 0}
+                              onStartAttempt={() => handleStartAttemptFromSet(setItem)}
+                              onDelete={() => setSetPendingDelete(setItem)}
+                              deleteAriaLabel={tx(t.coursePage.deleteSetAria, {
+                                name:
+                                  setItem.name ||
+                                  setItem.set_name ||
+                                  t.coursePage.questionSetUntitled,
+                              })}
+                            />
+                          </li>
+                        )
+                      })}
                     </ul>
                   ) : null}
                 </>
@@ -1059,29 +1450,10 @@ export default function CoursePage() {
                     <button
                       type="button"
                       className="course-page__back-btn"
-                      onClick={() => {
-                        setSelectedQuestionSet(null)
-                        setSetQuestions([])
-                      }}
+                      onClick={handleCloseQuestionSet}
                     >
                       {t.coursePage.backToSets}
                     </button>
-                    <div className="course-page__mode-switch" role="group" aria-label={t.coursePage.modeSwitchAria}>
-                      <button
-                        type="button"
-                        className={`course-page__mode-btn ${questionMode === 'review' ? 'course-page__mode-btn--active' : ''}`}
-                        onClick={handleEnterReviewMode}
-                      >
-                        {t.coursePage.reviewMode}
-                      </button>
-                      <button
-                        type="button"
-                        className={`course-page__mode-btn ${questionMode === 'practice' ? 'course-page__mode-btn--active' : ''}`}
-                        onClick={handleEnterPracticeMode}
-                      >
-                        {t.coursePage.practiceMode}
-                      </button>
-                    </div>
                   </div>
                   {setQuestionsLoading ? (
                     <p className="course-page__documents-state">{t.coursePage.questionSetLoading}</p>
@@ -1091,87 +1463,159 @@ export default function CoursePage() {
                       {setQuestionsError}
                     </p>
                   ) : null}
-                  {!setQuestionsLoading ? (
-                    <>
-                      <ol className="course-page__question-list">
-                        {setQuestions.map((question, index) => {
-                          const qid = String(question.question_id ?? question.questionId ?? `q-${index}`)
-                          const selectedIndex = practiceAnswers[qid]
-                          const isPractice = questionMode === 'practice'
-                          const shouldReveal = !isPractice
-                          return (
-                            <li key={qid} className="course-page__question-card">
-                              <p className="course-page__question-title">{question.question}</p>
-                              <ul className="course-page__question-options">
-                                {(Array.isArray(question.options) ? question.options : []).map((opt, optIndex) => {
-                                  const correctIndex = Number(question.correct_index)
-                                  const isCorrectOption = optIndex === correctIndex
-                                  const isIncorrectSelection =
-                                    shouldReveal &&
-                                    selectedIndex !== undefined &&
-                                    selectedIndex === optIndex &&
-                                    selectedIndex !== correctIndex
-                                  const isSelectedInPractice = isPractice && selectedIndex === optIndex
-                                  const optionClassName = [
-                                    'course-page__question-option',
-                                    shouldReveal && isCorrectOption
-                                      ? 'course-page__question-option--correct'
-                                      : '',
-                                    isIncorrectSelection ? 'course-page__question-option--incorrect' : '',
-                                    isSelectedInPractice ? 'course-page__question-option--selected' : '',
-                                  ]
-                                    .filter(Boolean)
-                                    .join(' ')
-                                  return (
-                                    <li key={`${qid}-${optIndex}`}>
-                                      <button
-                                        type="button"
-                                        className={optionClassName}
-                                        onClick={() => {
-                                          if (!isPractice) return
-                                          setPracticeAnswers((prev) => ({
-                                            ...prev,
-                                            [qid]: optIndex,
-                                          }))
-                                        }}
-                                        disabled={!isPractice}
-                                      >
-                                        {String.fromCharCode(65 + optIndex)}. {opt}
-                                      </button>
-                                    </li>
-                                  )
-                                })}
-                              </ul>
-                              {shouldReveal ? (
-                                <>
-                                  <p className="course-page__question-answer">
-                                    {t.coursePage.correctAnswer}:{' '}
-                                    {(question.options || [])[Number(question.correct_index)]}
-                                  </p>
-                                  <p className="course-page__question-explanation">
-                                    {t.coursePage.aiExplanation}: {question.explanation}
-                                  </p>
-                                </>
-                              ) : null}
-                            </li>
-                          )
-                        })}
-                      </ol>
-                      {questionMode === 'practice' && setQuestions.length > 0 ? (
-                        <button
-                          type="button"
-                          className="course-page__submit-quiz-btn"
-                          onClick={handleSubmitQuiz}
-                          disabled={isSubmittingAttempt || Object.keys(practiceAnswers).length === 0}
-                        >
-                          {isSubmittingAttempt
-                            ? t.coursePage.submitQuizSubmitting
-                            : t.coursePage.submitQuiz}
-                        </button>
-                      ) : null}
-                    </>
+                  {!setQuestionsLoading &&
+                  (questionMode === 'practice' || questionMode === 'results') ? (
+                    <QuestionReviewList
+                      questions={setQuestions}
+                      practiceAnswers={practiceAnswers}
+                      questionMode={questionMode}
+                      labels={t.coursePage}
+                      onAnswerSelect={(qid, optIndex) => {
+                        setPracticeAnswers((prev) => ({
+                          ...prev,
+                          [qid]: optIndex,
+                        }))
+                      }}
+                      isSubmittingAttempt={isSubmittingAttempt}
+                      onCancelAttempt={handleCancelAttempt}
+                      onSubmitQuiz={handleSubmitQuiz}
+                      onBack={questionMode === 'results' ? handleCloseQuestionSet : undefined}
+                      backLabel={questionMode === 'results' ? t.coursePage.backToSets : undefined}
+                    />
                   ) : null}
                 </div>
+              )}
+            </section>
+          ) : null}
+          {activeTab === 'attempts' ? (
+            <section aria-label={t.coursePage.attemptsSectionLabel}>
+              <div className="course-page__materials-header">
+                <h2 className="course-page__materials-heading course-page__materials-heading--panel">
+                  {t.coursePage.attemptsHeading}
+                </h2>
+              </div>
+              {viewingPastAttempt ? (
+                <div className="course-page__past-attempt-detail">
+                  <div className="course-page__set-detail-top">
+                    <button
+                      type="button"
+                      className="course-page__back-btn"
+                      onClick={handleExitPastAttemptView}
+                      disabled={setQuestionsLoading}
+                    >
+                      {t.coursePage.backToAttemptsHistory}
+                    </button>
+                  </div>
+                  <p className="course-page__past-attempt-header">
+                    {tx(t.coursePage.viewingPastAttemptHeader, {
+                      date: formatDocumentDate(viewingPastAttempt.submitted_at, lang),
+                      score: viewingPastAttempt.score ?? '—',
+                      setName: resolveQuestionSetLabel(
+                        viewingPastAttempt.question_set_id,
+                        questionSets,
+                      ),
+                    })}
+                  </p>
+                  {setQuestionsLoading ? (
+                    <p className="course-page__documents-state">{t.coursePage.questionSetLoading}</p>
+                  ) : null}
+                  {setQuestionsError ? (
+                    <p className="course-page__documents-error" role="alert">
+                      {setQuestionsError}
+                    </p>
+                  ) : null}
+                  {!setQuestionsLoading &&
+                  !setQuestionsError &&
+                  questionMode === 'results' &&
+                  setQuestions.length > 0 ? (
+                    <QuestionReviewList
+                      questions={setQuestions}
+                      practiceAnswers={practiceAnswers}
+                      questionMode="results"
+                      labels={t.coursePage}
+                      onBack={handleExitPastAttemptView}
+                      backLabel={t.coursePage.backToAttemptsHistory}
+                    />
+                  ) : null}
+                </div>
+              ) : (
+                <>
+                  {isAttemptsLoading ? (
+                    <div className="course-page__documents-skeleton" aria-busy="true">
+                      <div className="course-page__documents-skeleton-row" />
+                      <div className="course-page__documents-skeleton-row" />
+                      <p className="course-page__documents-state">{t.coursePage.attemptsLoading}</p>
+                    </div>
+                  ) : null}
+                  {attemptsError && !isAttemptsLoading ? (
+                    <p className="course-page__documents-error" role="alert">
+                      {attemptsError}
+                    </p>
+                  ) : null}
+                  {!isAttemptsLoading && !attemptsError && attempts.length === 0 ? (
+                    <p className="course-page__materials-empty">{t.coursePage.attemptsEmpty}</p>
+                  ) : null}
+                  {!isAttemptsLoading && !attemptsError && attempts.length > 0 ? (
+                    <ul
+                      className="course-page__attempt-list"
+                      aria-label={t.coursePage.attemptsListAriaLabel}
+                    >
+                      {attempts.map((attempt) => {
+                        const attemptKey =
+                          attempt.attempt_id ?? `${attempt.submitted_at}-${attempt.question_set_id}`
+                        const attemptId = String(attempt.attempt_id ?? '').trim()
+                        const isLoadingThis = loadingAttemptId === attemptId
+                        const attemptDate = formatDocumentDate(attempt.submitted_at, lang)
+                        const attemptScore = attempt.score ?? '—'
+                        return (
+                          <li key={attemptKey}>
+                            <button
+                              type="button"
+                              className="course-page__attempt-card course-page__attempt-card--clickable"
+                              onClick={() => handleViewPastAttempt(attempt)}
+                              disabled={setQuestionsLoading || Boolean(loadingAttemptId)}
+                              aria-label={tx(t.coursePage.viewPastAttemptAria, {
+                                date: attemptDate,
+                                score: attemptScore,
+                              })}
+                            >
+                              <div className="course-page__attempt-card-body">
+                                <p className="course-page__attempt-card-date">{attemptDate}</p>
+                                <p className="course-page__attempt-card-meta">
+                                  {tx(t.coursePage.attemptScoreLabel, {
+                                    score: attemptScore,
+                                  })}
+                                </p>
+                                <p className="course-page__attempt-card-meta">
+                                  {tx(t.coursePage.attemptTimeSpentLabel, {
+                                    time: formatTimeSpent(
+                                      attempt.time_spent_seconds,
+                                      t.coursePage,
+                                      tx,
+                                    ),
+                                  })}
+                                </p>
+                                <p className="course-page__attempt-card-meta">
+                                  {tx(t.coursePage.attemptQuestionSetLabel, {
+                                    name: resolveQuestionSetLabel(
+                                      attempt.question_set_id,
+                                      questionSets,
+                                    ),
+                                  })}
+                                </p>
+                                {isLoadingThis ? (
+                                  <p className="course-page__documents-state">
+                                    {t.coursePage.questionSetLoading}
+                                  </p>
+                                ) : null}
+                              </div>
+                            </button>
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  ) : null}
+                </>
               )}
             </section>
           ) : null}
