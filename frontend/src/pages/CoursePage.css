@@ -605,6 +605,11 @@
   line-height: 1.2;
 }
 
+.course-page__doc-badge--failed {
+  color: var(--danger-strong);
+  background: var(--danger-bg-soft, rgba(220, 38, 38, 0.08));
+}
+
 .course-page__doc-card-actions {
   display: flex;
   align-items: center;

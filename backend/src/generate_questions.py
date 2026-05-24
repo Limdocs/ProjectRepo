@@ -15,8 +15,6 @@ QUESTIONS_TABLE = os.environ["QUESTIONS_TABLE"]
 QUESTION_SETS_TABLE = os.environ["QUESTION_SETS_TABLE"]
 COURSES_TABLE = os.environ["COURSES_TABLE"]
 PROCESSED_BUCKET = os.environ["PROCESSED_BUCKET"]
-OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
-OPENAI_MODEL_NAME = os.environ["OPENAI_MODEL_NAME"]
 
 _MAX_SOURCE_CHARS = 12000
 _ALLOWED_DIFFICULTIES = {"Easy", "Medium", "Hard"}
@@ -107,6 +105,14 @@ def _truncate_source_text(text):
     if len(text) <= _MAX_SOURCE_CHARS:
         return text
     return text[:_MAX_SOURCE_CHARS]
+
+
+def _openai_config():
+    api_key = os.environ.get("OPENAI_API_KEY")
+    model_name = os.environ.get("OPENAI_MODEL_NAME", "gpt-4.1-mini")
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY is not configured")
+    return api_key, model_name
 
 
 def _allocate_budgets(texts, total_budget):
@@ -305,8 +311,15 @@ def _claim_documents_for_quiz(document_ids, correlation_id):
             _documents_table.update_item(
                 Key={"document_id": document_id},
                 UpdateExpression="SET processing_status = :g",
-                ConditionExpression="attribute_exists(s3_processed_key) AND processing_status = :ready",
-                ExpressionAttributeValues={":g": "GENERATING", ":ready": "READY"},
+                ConditionExpression=(
+                    "attribute_exists(s3_processed_key) AND "
+                    "(processing_status = :ready OR processing_status = :failed)"
+                ),
+                ExpressionAttributeValues={
+                    ":g": "GENERATING",
+                    ":ready": "READY",
+                    ":failed": "FAILED",
+                },
             )
             claimed.append(document_id)
         except ClientError as exc:
@@ -344,11 +357,32 @@ def _mark_quiz_generated(document_ids, correlation_id):
     for document_id in document_ids:
         _documents_table.update_item(
             Key={"document_id": document_id},
-            UpdateExpression="SET processing_status = :ready, has_generated_quiz = :has_quiz",
+            UpdateExpression=(
+                "SET processing_status = :ready, has_generated_quiz = :has_quiz "
+                "REMOVE failure_reason"
+            ),
             ExpressionAttributeValues={":ready": "READY", ":has_quiz": True},
         )
     logger.info(
         "cid=%s marked_documents_practiced status=READY count=%s",
+        correlation_id,
+        len(document_ids),
+    )
+
+
+def _mark_quiz_failed(document_ids, reason, correlation_id):
+    short_reason = (reason or "")[:900]
+    for document_id in document_ids:
+        _documents_table.update_item(
+            Key={"document_id": document_id},
+            UpdateExpression="SET processing_status = :status, failure_reason = :reason",
+            ExpressionAttributeValues={
+                ":status": "FAILED",
+                ":reason": short_reason,
+            },
+        )
+    logger.info(
+        "cid=%s marked_documents_failed count=%s",
         correlation_id,
         len(document_ids),
     )
@@ -406,9 +440,11 @@ def _generate_questions_worker(course_id, document_ids, correlation_id):
     )
 
     from openai import OpenAI
-    client = OpenAI(api_key=OPENAI_API_KEY)
+
+    api_key, model_name = _openai_config()
+    client = OpenAI(api_key=api_key)
     completion = client.chat.completions.create(
-        model=OPENAI_MODEL_NAME,
+        model=model_name,
         messages=[
             {"role": "system", "content": _SYSTEM_PROMPT},
             {"role": "user", "content": input_text},
@@ -477,49 +513,51 @@ def _generate_questions_worker(course_id, document_ids, correlation_id):
     )
 
 
-def _invoke_worker_async(payload, context, correlation_id):
-    function_arn = context.invoked_function_arn
-    if not function_arn:
-        raise RuntimeError("Cannot resolve function ARN for async invocation")
+def _invoke_worker_async(payload, correlation_id):
+    function_name = os.environ.get("WORKER_FUNCTION_NAME")
+    if not function_name:
+        raise RuntimeError("WORKER_FUNCTION_NAME is not configured")
     _lambda.invoke(
-        FunctionName=function_arn,
+        FunctionName=function_name,
         InvocationType="Event",
         Payload=json.dumps(payload).encode("utf-8"),
     )
-    logger.info("cid=%s worker_enqueued function_arn=%s", correlation_id, function_arn)
+    logger.info("cid=%s worker_enqueued function_name=%s", correlation_id, function_name)
 
 
-def lambda_handler(event, context):
+def worker_handler(event, context):
     correlation_id = event.get("apiRequestId") or context.aws_request_id
-    try:
-        if event.get("mode") == "worker":
-            course_id = event.get("courseId")
-            document_ids = event.get("documentIds") or []
-            requested_by = event.get("requestedBy")
-            logger.info(
-                "cid=%s worker_start course_id=%s doc_count=%s",
+    course_id = event.get("courseId")
+    document_ids = event.get("documentIds") or []
+    requested_by = event.get("requestedBy")
+    logger.info(
+        "cid=%s worker_start course_id=%s doc_count=%s",
+        correlation_id,
+        course_id,
+        len(document_ids),
+    )
+    if requested_by:
+        course_row = _courses_table.get_item(Key={"course_id": course_id}).get("Item") or {}
+        if course_row.get("owner_id") != requested_by:
+            logger.warning(
+                "cid=%s worker_rejected owner_mismatch course_id=%s",
                 correlation_id,
                 course_id,
-                len(document_ids),
             )
-            if requested_by:
-                course_row = _courses_table.get_item(Key={"course_id": course_id}).get("Item") or {}
-                if course_row.get("owner_id") != requested_by:
-                    logger.warning(
-                        "cid=%s worker_rejected owner_mismatch course_id=%s",
-                        correlation_id,
-                        course_id,
-                    )
-                    _set_documents_status(document_ids, "READY", correlation_id)
-                    return {"ok": False}
-            try:
-                _generate_questions_worker(course_id, document_ids, correlation_id)
-            except Exception:
-                logger.exception("cid=%s worker_failed course_id=%s", correlation_id, course_id)
-                _set_documents_status(document_ids, "READY", correlation_id)
-                raise
-            return {"ok": True}
+            _mark_quiz_failed(document_ids, "Unauthorized", correlation_id)
+            return {"ok": False}
+    try:
+        _generate_questions_worker(course_id, document_ids, correlation_id)
+    except Exception as exc:
+        logger.exception("cid=%s worker_failed course_id=%s", correlation_id, course_id)
+        _mark_quiz_failed(document_ids, str(exc)[:500], correlation_id)
+        return {"ok": False}
+    return {"ok": True}
 
+
+def api_handler(event, context):
+    correlation_id = context.aws_request_id
+    try:
         method = (event.get("httpMethod") or "").upper()
         if method == "OPTIONS":
             return _response(200, {"message": "OK"})
@@ -552,15 +590,14 @@ def lambda_handler(event, context):
             return claim_error
 
         worker_payload = {
-            "mode": "worker",
             "courseId": course_id,
             "documentIds": document_ids,
             "requestedBy": requested_by,
             "apiRequestId": correlation_id,
         }
         try:
-            logger.info("Attempting to invoke worker for CID: %s", correlation_id)
-            _invoke_worker_async(worker_payload, context, correlation_id)
+            logger.info("cid=%s invoking_worker", correlation_id)
+            _invoke_worker_async(worker_payload, correlation_id)
         except Exception:
             logger.exception("cid=%s failed_to_enqueue_worker", correlation_id)
             _set_documents_status(document_ids, "READY", correlation_id)

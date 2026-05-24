@@ -230,4 +230,7 @@ def lambda_handler(event, context):
                 _mark_document_failed(doc_for_log, str(exc)[:500])
             except Exception:
                 logger.exception("Failed to update DynamoDB failed status")
-        raise
+        return _success_response(
+            "Document processing failed",
+            document_id=doc_for_log,
+        )

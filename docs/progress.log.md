@@ -127,6 +127,10 @@ This file lives at `docs/progress.log.md` and is used for project progress track
 - Refreshed global design system via shared CSS variables in `index.css`: silvery-blue accent palette, motion/easing tokens, bento-style primary buttons, focus rings, and surface/typography neutrals; propagated restyle across Home, Course, and Login pages (theme helper scripts `_apply_theme_part1.py`, `_apply_theme_course.py`). | files: `frontend/src/index.css`, `frontend/src/pages/HomePage.css`, `frontend/src/pages/CoursePage.css`, `frontend/src/pages/LoginPage.css`, `frontend/index.html`, `frontend/public/icons.svg`, `_apply_theme_part1.py`, `_apply_theme_course.py` | status: done
 - Extended `coursePage` i18n for quiz practice flow, submission feedback, and answer review labels (`submitQuiz*`, `correctAnswer`, etc.) in Hebrew and English. | files: `frontend/src/language-control/languageContent.js` | status: done
 
+## 2026-05-24
+
+- Fixed recursive Lambda invocation on quiz generation by splitting API (`limdocs-generate-questions`) and worker (`limdocs-generate-questions-worker`) functions, disabling worker async retries, marking quiz failures as `FAILED` without re-raise, and stopping `process_document` outer re-raise after terminal failure. | files: `backend/template.yaml`, `backend/src/generate_questions.py`, `backend/src/process_document.py`, `frontend/src/pages/CoursePage.jsx`, `frontend/src/pages/CoursePage.css` | status: done
+
 ## 2026-05-23
 
 - Added DynamoDB `attempts` (PK `user_name`, SK `submitted_at`) and `attempt_answers` (PK `attempt_id`, SK `question_id`) tables in SAM for persisted quiz-attempt records. | files: `backend/template.yaml` | status: done

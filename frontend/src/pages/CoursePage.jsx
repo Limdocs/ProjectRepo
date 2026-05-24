@@ -23,7 +23,21 @@ import {
 } from '../services/documentsService.js'
 
 const FINAL_PROCESSING_STATUSES = new Set(['READY', 'FAILED', 'ERROR'])
-const QUIZ_ELIGIBLE_STATUSES = new Set(['READY'])
+const QUIZ_ELIGIBLE_STATUSES = new Set(['READY', 'FAILED'])
+
+function documentStatusLabel(status, labels) {
+  const normalized = normalizeProcessingStatus(status)
+  const labelMap = {
+    UPLOADED: labels.statusUploaded,
+    PROCESSING: labels.statusProcessing,
+    GENERATING: labels.statusGenerating,
+    READY: labels.statusReady,
+    GENERATED: labels.statusGenerated,
+    FAILED: labels.statusFailed,
+    ERROR: labels.statusFailed,
+  }
+  return labelMap[normalized] ?? (normalized || '—')
+}
 
 function fileKey(file) {
   return `${file.name}-${file.size}-${file.lastModified}`
@@ -1317,6 +1331,12 @@ export default function CoursePage() {
                     const status = doc.processing_status ?? doc.processingStatus ?? ''
                     const normalizedStatus = normalizeProcessingStatus(status)
                     const isInteractive = QUIZ_ELIGIBLE_STATUSES.has(normalizedStatus)
+                    const hasGeneratedQuiz = Boolean(
+                      doc.has_generated_quiz ?? doc.hasGeneratedQuiz ?? false,
+                    )
+                    const statusLabel = documentStatusLabel(status, t.coursePage)
+                    const showStatusBadge =
+                      normalizedStatus && normalizedStatus !== 'READY'
                     const deletingThisDoc = deletingDocId === String(id)
                     const docId = String(id)
                     const isSelected = selectedDocIds.includes(docId)
@@ -1350,6 +1370,18 @@ export default function CoursePage() {
                           </span>
                         </div>
                         {!isInteractive ? <span className="mini-spinner" aria-hidden /> : null}
+                        {showStatusBadge ? (
+                          <span
+                            className={`course-page__doc-badge${
+                              normalizedStatus === 'FAILED' || normalizedStatus === 'ERROR'
+                                ? ' course-page__doc-badge--failed'
+                                : ''
+                            }`}
+                            role="status"
+                          >
+                            {statusLabel}
+                          </span>
+                        ) : null}
                         <div className="course-page__doc-card-actions">
                           <button
                             type="button"

@@ -429,22 +429,15 @@ Resources:
             Path: /courses/{courseId}
             Method: delete
 
-  GenerateQuestionsFunction:
+  GenerateQuestionsWorkerFunction:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: limdocs-generate-questions
+      FunctionName: limdocs-generate-questions-worker
       CodeUri: src/
-      Handler: generate_questions.lambda_handler
+      Handler: generate_questions.worker_handler
       Runtime: python3.9
       Timeout: 300
       MemorySize: 512
-      Policies:
-        - Statement:
-            - Effect: Allow
-              Action: "lambda:InvokeFunction"
-              Resource: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${GenerateQuestionsFunction}"
-      # IAM check: LabRole must include lambda:InvokeFunction on this function ARN
-      # to support async self-invocation from API mode to worker mode.
       ReservedConcurrentExecutions: 2
       Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/LabRole"
       Environment:
@@ -456,6 +449,36 @@ Resources:
           PROCESSED_BUCKET: !Ref ProcessedOutputsBucket
           OPENAI_API_KEY: !Ref OpenAIApiKey
           OPENAI_MODEL_NAME: "gpt-4.1-mini"
+
+  GenerateQuestionsWorkerAsyncConfig:
+    Type: AWS::Lambda::EventInvokeConfig
+    Properties:
+      FunctionName: !Ref GenerateQuestionsWorkerFunction
+      Qualifier: $LATEST
+      MaximumRetryAttempts: 0
+
+  GenerateQuestionsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: limdocs-generate-questions
+      CodeUri: src/
+      Handler: generate_questions.api_handler
+      Runtime: python3.9
+      Timeout: 30
+      MemorySize: 512
+      Policies:
+        - LambdaInvokePolicy:
+            FunctionName: !Ref GenerateQuestionsWorkerFunction
+      # IAM check: LabRole must include lambda:InvokeFunction on the worker ARN.
+      Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/LabRole"
+      Environment:
+        Variables:
+          COURSES_TABLE: !Ref LimdocsCoursesTable
+          QUESTIONS_TABLE: !Ref QuestionsTable
+          QUESTION_SETS_TABLE: !Ref QuestionSetsTable
+          DOCUMENTS_TABLE: !Ref DocumentsTable
+          PROCESSED_BUCKET: !Ref ProcessedOutputsBucket
+          WORKER_FUNCTION_NAME: !Ref GenerateQuestionsWorkerFunction
       Events:
         ApiEvent:
           Type: Api
@@ -628,3 +651,7 @@ Outputs:
   AttemptAnswersTableName:
     Description: DynamoDB table name for per-question attempt answers
     Value: !Ref AttemptAnswersTable
+
+  GenerateQuestionsWorkerFunctionName:
+    Description: Async quiz generation worker Lambda (not API-exposed)
+    Value: !Ref GenerateQuestionsWorkerFunction

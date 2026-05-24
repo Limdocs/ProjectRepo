@@ -137,10 +137,12 @@ VITE_API_URL=https://<api-id>.execute-api.<region>.amazonaws.com/prod
 
 ```bash
 cd backend
+sam build            # on Windows: sam build --use-container
 sam validate
-sam build
 sam deploy --guided
 ```
+
+Quiz generation needs the **OpenAI SDK** bundled by `sam build` into the Lambda deployment package. Do not upload only `.py` files; run `sam build` before `sam deploy`, or the worker fails with `ModuleNotFoundError: No module named 'openai'`.
 
 Recommended prerequisites:
 
