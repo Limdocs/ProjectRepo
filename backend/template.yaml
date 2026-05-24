@@ -413,14 +413,23 @@ Resources:
       CodeUri: src/
       Handler: delete_course.lambda_handler
       Runtime: python3.9
+      Timeout: 30
+      # LabRole must include dynamodb/s3 on courses, documents, question_sets,
+      # questions, attempts, attempt_answers (Query, DeleteItem, BatchWriteItem).
       Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/LabRole"
       Environment:
         Variables:
           COURSES_TABLE: !Ref LimdocsCoursesTable
           DOCUMENTS_TABLE: !Ref DocumentsTable
+          QUESTION_SETS_TABLE: !Ref QuestionSetsTable
+          QUESTIONS_TABLE: !Ref QuestionsTable
+          ATTEMPTS_TABLE: !Ref AttemptsTable
+          ATTEMPT_ANSWERS_TABLE: !Ref AttemptAnswersTable
           UPLOAD_BUCKET: !Ref RawUploadsBucket
           PROCESSED_BUCKET: !Ref ProcessedOutputsBucket
           INDEX_NAME: CourseIdIndex
+          QUESTION_SETS_COURSE_INDEX: CourseIdCreatedAtIndex
+          QUESTIONS_SET_INDEX: SetIdIndex
       Events:
         ApiEvent:
           Type: Api
@@ -590,6 +599,28 @@ Resources:
             RestApiId: !Ref LimdocsApi
             Path: /courses/{courseId}/attempts/{attemptId}/answers
             Method: get
+
+  DeleteAttemptFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: limdocs-delete-attempt
+      CodeUri: src/
+      Handler: delete_attempt.lambda_handler
+      Runtime: python3.9
+      # LabRole must include dynamodb:Query, DeleteItem, BatchWriteItem on attempts and attempt_answers.
+      Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/LabRole"
+      Environment:
+        Variables:
+          COURSES_TABLE: !Ref LimdocsCoursesTable
+          ATTEMPTS_TABLE: !Ref AttemptsTable
+          ATTEMPT_ANSWERS_TABLE: !Ref AttemptAnswersTable
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref LimdocsApi
+            Path: /courses/{courseId}/attempts/{attemptId}
+            Method: delete
 
 Outputs:
   UserPoolId:

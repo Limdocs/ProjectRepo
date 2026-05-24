@@ -4,6 +4,7 @@ import { fetchAuthSession, getCurrentUser } from 'aws-amplify/auth'
 import './CoursePage.css'
 import { useLanguageControl } from '../language-control/LanguageControlProvider.jsx'
 import {
+  deleteAttempt,
   deleteCourse,
   getAttemptAnswers,
   getCourseAttempts,
@@ -390,6 +391,8 @@ export default function CoursePage() {
   const [attemptsError, setAttemptsError] = useState(null)
   const [viewingPastAttempt, setViewingPastAttempt] = useState(null)
   const [loadingAttemptId, setLoadingAttemptId] = useState(null)
+  const [attemptPendingDelete, setAttemptPendingDelete] = useState(null)
+  const [isDeletingAttempt, setIsDeletingAttempt] = useState(false)
   const fileInputRef = useRef(null)
   const dragDepthRef = useRef(0)
   const skipSetAutoLoadRef = useRef(false)
@@ -1218,6 +1221,31 @@ export default function CoursePage() {
     }
   }
 
+  const handleDeleteAttempt = async () => {
+    const attemptId = String(attemptPendingDelete?.attempt_id ?? '').trim()
+    if (!attemptId || !courseId || isDeletingAttempt) return
+    setIsDeletingAttempt(true)
+    setAttemptsError(null)
+    try {
+      const session = await fetchAuthSession()
+      const idToken = session.tokens?.idToken?.toString()
+      if (!idToken) throw new Error(t.coursePage.uploadMissingSession)
+      await deleteAttempt(courseId, attemptId, idToken)
+      setAttempts((prev) => prev.filter((row) => String(row.attempt_id ?? '').trim() !== attemptId))
+      if (String(viewingPastAttempt?.attempt_id ?? '').trim() === attemptId) {
+        handleExitPastAttemptView()
+      }
+      setAttemptPendingDelete(null)
+    } catch (err) {
+      const apiMsg = err?.response?.data?.message
+      setAttemptsError(
+        typeof apiMsg === 'string' && apiMsg.trim() ? apiMsg.trim() : t.coursePage.deleteAttemptError,
+      )
+    } finally {
+      setIsDeletingAttempt(false)
+    }
+  }
+
   const handleDeleteSet = async () => {
     if (!setPendingDelete?.set_id || !courseId || isDeletingSet) return
     setIsDeletingSet(true)
@@ -1700,47 +1728,76 @@ export default function CoursePage() {
                         const attemptScore = attempt.score ?? '—'
                         return (
                           <li key={attemptKey}>
-                            <button
-                              type="button"
-                              className="course-page__attempt-card course-page__attempt-card--clickable"
-                              onClick={() => handleViewPastAttempt(attempt)}
-                              disabled={setQuestionsLoading || Boolean(loadingAttemptId)}
-                              aria-label={tx(t.coursePage.viewPastAttemptAria, {
-                                date: attemptDate,
-                                score: attemptScore,
-                              })}
-                            >
-                              <div className="course-page__attempt-card-body">
-                                <p className="course-page__attempt-card-date">{attemptDate}</p>
-                                <p className="course-page__attempt-card-meta">
-                                  {tx(t.coursePage.attemptScoreLabel, {
-                                    score: attemptScore,
+                            <article className="course-page__attempt-card">
+                              <div className="course-page__attempt-preview-toolbar">
+                                <button
+                                  type="button"
+                                  className="course-page__set-delete-btn course-page__set-delete-btn--inline"
+                                  onClick={() => setAttemptPendingDelete(attempt)}
+                                  disabled={
+                                    isDeletingAttempt ||
+                                    setQuestionsLoading ||
+                                    Boolean(loadingAttemptId)
+                                  }
+                                  aria-label={tx(t.coursePage.deleteAttemptAria, {
+                                    date: attemptDate,
                                   })}
-                                </p>
-                                <p className="course-page__attempt-card-meta">
-                                  {tx(t.coursePage.attemptTimeSpentLabel, {
-                                    time: formatTimeSpent(
-                                      attempt.time_spent_seconds,
-                                      t.coursePage,
-                                      tx,
-                                    ),
-                                  })}
-                                </p>
-                                <p className="course-page__attempt-card-meta">
-                                  {tx(t.coursePage.attemptQuestionSetLabel, {
-                                    name: resolveQuestionSetLabel(
-                                      attempt.question_set_id,
-                                      questionSets,
-                                    ),
-                                  })}
-                                </p>
-                                {isLoadingThis ? (
-                                  <p className="course-page__documents-state">
-                                    {t.coursePage.questionSetLoading}
-                                  </p>
-                                ) : null}
+                                >
+                                  <span aria-hidden>
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                                      <path
+                                        d="M9 3.75h6m-7.5 3h9m-7.5 3.75v7.5m3-7.5v7.5m4.875-10.5-.662 9.272A2.25 2.25 0 0 1 13.97 21h-3.94a2.25 2.25 0 0 1-2.243-2.028L7.125 7.5"
+                                        stroke="currentColor"
+                                        strokeWidth="1.5"
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                      />
+                                    </svg>
+                                  </span>
+                                </button>
                               </div>
-                            </button>
+                              <button
+                                type="button"
+                                className="course-page__attempt-card--clickable"
+                                onClick={() => handleViewPastAttempt(attempt)}
+                                disabled={setQuestionsLoading || Boolean(loadingAttemptId)}
+                                aria-label={tx(t.coursePage.viewPastAttemptAria, {
+                                  date: attemptDate,
+                                  score: attemptScore,
+                                })}
+                              >
+                                <div className="course-page__attempt-card-body">
+                                  <p className="course-page__attempt-card-date">{attemptDate}</p>
+                                  <p className="course-page__attempt-card-meta">
+                                    {tx(t.coursePage.attemptScoreLabel, {
+                                      score: attemptScore,
+                                    })}
+                                  </p>
+                                  <p className="course-page__attempt-card-meta">
+                                    {tx(t.coursePage.attemptTimeSpentLabel, {
+                                      time: formatTimeSpent(
+                                        attempt.time_spent_seconds,
+                                        t.coursePage,
+                                        tx,
+                                      ),
+                                    })}
+                                  </p>
+                                  <p className="course-page__attempt-card-meta">
+                                    {tx(t.coursePage.attemptQuestionSetLabel, {
+                                      name: resolveQuestionSetLabel(
+                                        attempt.question_set_id,
+                                        questionSets,
+                                      ),
+                                    })}
+                                  </p>
+                                  {isLoadingThis ? (
+                                    <p className="course-page__documents-state">
+                                      {t.coursePage.questionSetLoading}
+                                    </p>
+                                  ) : null}
+                                </div>
+                              </button>
+                            </article>
                           </li>
                         )
                       })}
@@ -2034,6 +2091,51 @@ export default function CoursePage() {
                 {isDeletingCourse
                   ? t.coursePage.deleteCourseDeleting
                   : t.coursePage.deleteCourseConfirm}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+      {attemptPendingDelete ? (
+        <div
+          className="course-page__modal-backdrop"
+          role="presentation"
+          onClick={() => {
+            if (!isDeletingAttempt) setAttemptPendingDelete(null)
+          }}
+        >
+          <section
+            className="course-page__modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="course-delete-attempt-modal-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id="course-delete-attempt-modal-title" className="course-page__modal-title">
+              {t.coursePage.deleteAttempt}
+            </h2>
+            <p className="course-page__modal-subtitle">
+              {tx(t.coursePage.deleteAttemptConfirm, {
+                date: formatDocumentDate(attemptPendingDelete.submitted_at, lang),
+                score: attemptPendingDelete.score ?? '—',
+              })}
+            </p>
+            <div className="course-page__modal-actions">
+              <button
+                type="button"
+                className="course-page__modal-cancel"
+                onClick={() => setAttemptPendingDelete(null)}
+                disabled={isDeletingAttempt}
+              >
+                {t.home.cancel}
+              </button>
+              <button
+                type="button"
+                className="course-page__modal-submit course-page__modal-submit--danger"
+                onClick={handleDeleteAttempt}
+                disabled={isDeletingAttempt}
+              >
+                {isDeletingAttempt ? t.coursePage.deleteDeleting : t.coursePage.deleteAttempt}
               </button>
             </div>
           </section>

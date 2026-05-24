@@ -835,12 +835,23 @@
   border-radius: 14px;
   background: var(--surface-elevated);
   box-shadow: var(--shadow-card);
+  display: block;
+  width: 100%;
+}
+
+.course-page__attempt-preview-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0.5rem 0.5rem 0;
 }
 
 .course-page__attempt-card--clickable {
+  display: block;
   width: 100%;
   margin: 0;
   padding: 0;
+  border: none;
+  background: transparent;
   text-align: inherit;
   font: inherit;
   color: inherit;
@@ -851,8 +862,11 @@
     box-shadow 0.15s ease;
 }
 
-.course-page__attempt-card--clickable:hover:not(:disabled) {
+.course-page__attempt-card:has(.course-page__attempt-card--clickable:hover:not(:disabled)) {
   border-color: var(--accent-primary, #2563eb);
+}
+
+.course-page__attempt-card--clickable:hover:not(:disabled) {
   background: var(--surface-hover, rgba(37, 99, 235, 0.04));
 }
 

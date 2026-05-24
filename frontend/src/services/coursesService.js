@@ -135,3 +135,29 @@ export async function getAttemptAnswers(courseId, attemptId, idToken) {
   }
   return {}
 }
+
+export async function deleteAttempt(courseId, attemptId, idToken) {
+  if (!apiBaseUrl) {
+    throw new Error('API is not configured. Set VITE_API_URL.')
+  }
+  if (!courseId) {
+    throw new Error('Missing courseId.')
+  }
+  if (!attemptId) {
+    throw new Error('Missing attemptId.')
+  }
+  if (!idToken) {
+    throw new Error('Missing idToken.')
+  }
+
+  const response = await axios.delete(
+    `${apiBaseUrl}/courses/${encodeURIComponent(courseId)}/attempts/${encodeURIComponent(attemptId)}`,
+    {
+      headers: {
+        Authorization: `Bearer ${idToken}`,
+      },
+    },
+  )
+
+  return response?.data ?? {}
+}
