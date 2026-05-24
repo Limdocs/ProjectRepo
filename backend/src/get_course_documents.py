@@ -5,6 +5,8 @@ import boto3
 from boto3.dynamodb.conditions import Key
 
 from course_access import require_course_owner
+from openai_helpers import ensure_document_topics
+from openai_helpers import ensure_document_topics
 
 DOCUMENTS_TABLE = os.environ["DOCUMENTS_TABLE"]
 COURSES_TABLE = os.environ["COURSES_TABLE"]
@@ -62,7 +64,10 @@ def lambda_handler(event, context):
             IndexName=INDEX_NAME,
             KeyConditionExpression=Key("course_id").eq(course_id),
         )
-        items = query_result.get("Items", [])
+        items = [
+            ensure_document_topics(dict(item))
+            for item in query_result.get("Items", [])
+        ]
 
         return _response(200, {"documents": items})
     except Exception as exc:

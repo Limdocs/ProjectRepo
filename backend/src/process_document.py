@@ -9,6 +9,20 @@ import boto3
 from botocore.exceptions import ClientError
 
 from limits import MAX_UPLOAD_BYTES
+from openai_helpers import (
+    FALLBACK_TOPICS,
+    extract_json_payload,
+    get_openai_client,
+    openai_config,
+    truncate_source_text,
+)
+from openai_helpers import (
+    FALLBACK_TOPICS,
+    extract_json_payload,
+    get_openai_client,
+    openai_config,
+    truncate_source_text,
+)
 
 DOCUMENTS_TABLE = os.environ["DOCUMENTS_TABLE"]
 PROCESSED_BUCKET = os.environ["PROCESSED_BUCKET"]
@@ -24,6 +38,34 @@ _BASENAME_DOC_ID_PATTERN = re.compile(
     r"[1-5][0-9a-fA-F]{3}-"
     r"[89abAB][0-9a-fA-F]{3}-"
     r"[0-9a-fA-F]{12})_.+"
+)
+
+_MAX_SOURCE_CHARS = 100_000
+_MIN_TOPICS = 3
+_MAX_TOPICS = 6
+
+_TOPICS_SYSTEM_PROMPT = (
+    "You are an academic document analyst for Limdocs. "
+    "Analyze the provided extracted text and identify 3 to 6 high-level, distinct "
+    "academic sub-topics covered in the document. "
+    "Return ONLY a valid JSON array with no markdown fences and no extra prose. "
+    "Each array element must be an object with exactly two keys: "
+    "\"he\" (sub-topic name in Hebrew) and \"en\" (equivalent academic name in English). "
+    "Example element: {\"he\": \"סיבוכיות זמן\", \"en\": \"Time Complexity\"}."
+)
+
+_MAX_SOURCE_CHARS = 100_000
+_MIN_TOPICS = 3
+_MAX_TOPICS = 6
+
+_TOPICS_SYSTEM_PROMPT = (
+    "You are an academic document analyst for Limdocs. "
+    "Analyze the provided extracted text and identify 3 to 6 high-level, distinct "
+    "academic sub-topics covered in the document. "
+    "Return ONLY a valid JSON array with no markdown fences and no extra prose. "
+    "Each array element must be an object with exactly two keys: "
+    "\"he\" (sub-topic name in Hebrew) and \"en\" (equivalent academic name in English). "
+    "Example element: {\"he\": \"סיבוכיות זמן\", \"en\": \"Time Complexity\"}."
 )
 
 logger = logging.getLogger()
@@ -66,6 +108,76 @@ def _success_response(message, **extra):
     return {"statusCode": 200, "body": json.dumps(body)}
 
 
+def _normalize_topic_item(item):
+    if not isinstance(item, dict):
+        return None
+    he = item.get("he")
+    en = item.get("en")
+    if not isinstance(he, str) or not isinstance(en, str):
+        return None
+    he = he.strip()
+    en = en.strip()
+    if not he or not en:
+        return None
+    return {"he": he, "en": en}
+
+
+def _parse_topics_response(raw_response):
+    cleaned = extract_json_payload(raw_response)
+    try:
+        parsed = json.loads(cleaned)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Model response is not valid JSON: {exc}") from exc
+    if not isinstance(parsed, list):
+        raise ValueError("Model response must be a JSON array")
+
+    valid = []
+    for item in parsed:
+        normalized = _normalize_topic_item(item)
+        if normalized is not None:
+            valid.append(normalized)
+
+    if len(valid) < _MIN_TOPICS or len(valid) > _MAX_TOPICS:
+        raise ValueError(
+            f"Expected {_MIN_TOPICS}-{_MAX_TOPICS} valid topics, got {len(valid)}"
+        )
+    return valid
+
+
+def _extract_bilingual_topics(extracted_text):
+    _, model_name = openai_config()
+    user_content = (
+        "Extract bilingual academic sub-topics from the following document text:\n\n"
+        + truncate_source_text(extracted_text, _MAX_SOURCE_CHARS)
+    )
+    client = get_openai_client()
+    completion = client.chat.completions.create(
+        model=model_name,
+        messages=[
+            {"role": "system", "content": _TOPICS_SYSTEM_PROMPT},
+            {"role": "user", "content": user_content},
+        ],
+        temperature=0.2,
+        timeout=60,
+    )
+    return _parse_topics_response(completion.choices[0].message.content or "")
+
+
+def _extract_topics_safe(extracted_text, source_key):
+    try:
+        if not (extracted_text or "").strip():
+            raise ValueError("empty extracted text")
+        return _extract_bilingual_topics(extracted_text)
+    except Exception as exc:
+        logger.warning(
+            "topic extraction failed source_key=%s: %s",
+            source_key,
+            exc,
+            exc_info=True,
+        )
+        return list(FALLBACK_TOPICS)
+
+
 def _collect_textract_lines(job_id):
     all_lines = []
     next_token = None
@@ -96,6 +208,76 @@ def _collect_textract_lines(job_id):
             break
 
     return all_lines
+
+
+def _normalize_topic_item(item):
+    if not isinstance(item, dict):
+        return None
+    he = item.get("he")
+    en = item.get("en")
+    if not isinstance(he, str) or not isinstance(en, str):
+        return None
+    he = he.strip()
+    en = en.strip()
+    if not he or not en:
+        return None
+    return {"he": he, "en": en}
+
+
+def _parse_topics_response(raw_response):
+    cleaned = extract_json_payload(raw_response)
+    try:
+        parsed = json.loads(cleaned)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Model response is not valid JSON: {exc}") from exc
+    if not isinstance(parsed, list):
+        raise ValueError("Model response must be a JSON array")
+
+    valid = []
+    for item in parsed:
+        normalized = _normalize_topic_item(item)
+        if normalized is not None:
+            valid.append(normalized)
+
+    if len(valid) < _MIN_TOPICS or len(valid) > _MAX_TOPICS:
+        raise ValueError(
+            f"Expected {_MIN_TOPICS}-{_MAX_TOPICS} valid topics, got {len(valid)}"
+        )
+    return valid
+
+
+def _extract_bilingual_topics(extracted_text):
+    _, model_name = openai_config()
+    user_content = (
+        "Extract bilingual academic sub-topics from the following document text:\n\n"
+        + truncate_source_text(extracted_text, _MAX_SOURCE_CHARS)
+    )
+    client = get_openai_client()
+    completion = client.chat.completions.create(
+        model=model_name,
+        messages=[
+            {"role": "system", "content": _TOPICS_SYSTEM_PROMPT},
+            {"role": "user", "content": user_content},
+        ],
+        temperature=0.2,
+        timeout=60,
+    )
+    return _parse_topics_response(completion.choices[0].message.content or "")
+
+
+def _extract_topics_safe(extracted_text, source_key):
+    try:
+        if not (extracted_text or "").strip():
+            raise ValueError("empty extracted text")
+        return _extract_bilingual_topics(extracted_text)
+    except Exception as exc:
+        logger.warning(
+            "topic extraction failed source_key=%s: %s",
+            source_key,
+            exc,
+            exc_info=True,
+        )
+        return list(FALLBACK_TOPICS)
 
 
 def lambda_handler(event, context):
@@ -206,14 +388,24 @@ def lambda_handler(event, context):
             ContentType="text/plain; charset=utf-8",
         )
 
-        logger.info("Updating document READY document_id=%s", document_id)
+        topics = _extract_topics_safe(extracted_text, source_key)
+
+        logger.info(
+            "Updating document READY document_id=%s topics_count=%s",
+            document_id,
+            len(topics),
+        )
         _documents_table.update_item(
             Key={"document_id": document_id},
-            UpdateExpression="SET processing_status = :s, s3_processed_key = :k REMOVE failure_reason",
+            UpdateExpression=(
+                "SET processing_status = :s, s3_processed_key = :k, topics = :topics "
+                "REMOVE failure_reason"
+            ),
             ConditionExpression="attribute_exists(document_id)",
             ExpressionAttributeValues={
                 ":s": "READY",
                 ":k": processed_key,
+                ":topics": topics,
             },
         )
 

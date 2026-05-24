@@ -1,7 +1,6 @@
 import json
 import logging
 import os
-import re
 from datetime import datetime, timezone
 from uuid import uuid4
 
@@ -9,6 +8,18 @@ import boto3
 from botocore.exceptions import ClientError
 
 from course_access import require_course_owner
+from openai_helpers import (
+    FALLBACK_TOPICS,
+    QUIZ_MAX_SOURCE_CHARS,
+    allowed_en_topic_names,
+    build_canonical_topic_lookup,
+    dedupe_topics_by_en,
+    ensure_document_topics,
+    extract_json_payload,
+    get_openai_client,
+    openai_config,
+    truncate_source_text,
+)
 
 DOCUMENTS_TABLE = os.environ["DOCUMENTS_TABLE"]
 QUESTIONS_TABLE = os.environ["QUESTIONS_TABLE"]
@@ -16,7 +27,6 @@ QUESTION_SETS_TABLE = os.environ["QUESTION_SETS_TABLE"]
 COURSES_TABLE = os.environ["COURSES_TABLE"]
 PROCESSED_BUCKET = os.environ["PROCESSED_BUCKET"]
 
-_MAX_SOURCE_CHARS = 12000
 _ALLOWED_DIFFICULTIES = {"Easy", "Medium", "Hard"}
 
 logger = logging.getLogger()
@@ -32,17 +42,72 @@ _courses_table = _dynamodb.Table(COURSES_TABLE)
 
 _CORS_ALLOW_HEADERS = "Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token"
 
-_SYSTEM_PROMPT = (
-    "You are an expert academic assistant. Generate 5 high-quality multiple-choice "
-    "questions in Hebrew based on the provided text. Categorize each question with "
-    "relevant topics and assign difficulty as Easy, Medium, or Hard based on the "
-    "academic depth of the text. Ensure at least 1-2 questions synthesize or compare "
-    "information across multiple provided documents. Return ONLY a valid JSON array of objects. "
-    "Each object must include: question (string), options (array of 4 strings), "
-    "correct_index (integer 0-3), explanation (string), topics (array of strings), "
-    "difficulty (Easy|Medium|Hard). Optionally, answer (string) may be included as "
-    "redundant text matching one value in options."
-)
+def _build_system_prompt(allowed_topic_names):
+    allowed_json = json.dumps(allowed_topic_names, ensure_ascii=False)
+    return (
+        "You are an expert academic assistant. Generate exactly 5 high-quality "
+        "multiple-choice questions in Hebrew based on the provided text.\n\n"
+        "TOPIC CONSTRAINT (STRICT — NO EXCEPTIONS):\n"
+        f"The ONLY allowed topic names are: {allowed_json}.\n"
+        "- You are STRICTLY FORBIDDEN from inventing new topic names, translating "
+        "topic names, abbreviating them, or introducing typos.\n"
+        '- Every question MUST include a "topics" array containing one or more values '
+        "copied EXACTLY from the allowed list above (character-for-character match).\n"
+        '- Do not use Hebrew topic names in the "topics" field — English names only.\n'
+        "- Choose topics that best reflect the question content; a question may have "
+        "multiple topics if appropriate.\n\n"
+        "Difficulty: assign Easy, Medium, or Hard based on academic depth.\n"
+        "Cross-document synthesis: ensure at least 1–2 questions synthesize or compare "
+        "information across multiple provided documents when multiple documents are present.\n\n"
+        "Return ONLY a valid JSON array of objects. Each object must include:\n"
+        "question (string), options (array of exactly 4 strings), correct_index (integer 0–3),\n"
+        "explanation (string), topics (array of strings from the allowed list only),\n"
+        "difficulty (Easy|Medium|Hard).\n"
+        "Optionally include answer (string) redundant with one option."
+    )
+
+
+def _build_question_response_schema(allowed_topic_names):
+    return {
+        "name": "quiz_questions",
+        "strict": True,
+        "schema": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": [
+                    "question",
+                    "options",
+                    "correct_index",
+                    "explanation",
+                    "topics",
+                    "difficulty",
+                ],
+                "properties": {
+                    "question": {"type": "string"},
+                    "options": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "minItems": 4,
+                        "maxItems": 4,
+                    },
+                    "correct_index": {"type": "integer", "minimum": 0, "maximum": 3},
+                    "explanation": {"type": "string"},
+                    "topics": {
+                        "type": "array",
+                        "items": {"type": "string", "enum": allowed_topic_names},
+                        "minItems": 1,
+                    },
+                    "difficulty": {
+                        "type": "string",
+                        "enum": ["Easy", "Medium", "Hard"],
+                    },
+                    "answer": {"type": "string"},
+                },
+            },
+        },
+    }
 
 
 def _response(status_code, payload, allow_methods="POST,OPTIONS"):
@@ -58,61 +123,11 @@ def _response(status_code, payload, allow_methods="POST,OPTIONS"):
     }
 
 
-def _clean_model_json(raw_text):
-    text = (raw_text or "").strip()
-    if text.startswith("```"):
-        lines = text.splitlines()
-        if lines and lines[0].startswith("```"):
-            lines = lines[1:]
-        if lines and lines[-1].strip() == "```":
-            lines = lines[:-1]
-        text = "\n".join(lines).strip()
-    if text.lower().startswith("json"):
-        text = text[4:].strip()
-    return text
-
-
-def _extract_json_payload(raw_text):
-    text = (raw_text or "").strip()
-    if not text:
-        return text
-
-    fenced_match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", text, flags=re.IGNORECASE)
-    if fenced_match:
-        text = fenced_match.group(1).strip()
-
-    text = _clean_model_json(text)
-    if not text:
-        return text
-
-    for opener, closer in (("[", "]"), ("{", "}")):
-        start = text.find(opener)
-        end = text.rfind(closer)
-        if start != -1 and end > start:
-            return text[start : end + 1].strip()
-
-    return text
-
-
 def _truncate_for_log(value, limit=3000):
     text = (value or "").strip()
     if len(text) <= limit:
         return text
     return f"{text[:limit]}... [truncated]"
-
-
-def _truncate_source_text(text):
-    if len(text) <= _MAX_SOURCE_CHARS:
-        return text
-    return text[:_MAX_SOURCE_CHARS]
-
-
-def _openai_config():
-    api_key = os.environ.get("OPENAI_API_KEY")
-    model_name = os.environ.get("OPENAI_MODEL_NAME", "gpt-4.1-mini")
-    if not api_key:
-        raise RuntimeError("OPENAI_API_KEY is not configured")
-    return api_key, model_name
 
 
 def _allocate_budgets(texts, total_budget):
@@ -141,12 +156,12 @@ def _allocate_budgets(texts, total_budget):
 
 
 def _build_balanced_context(texts):
-    budgets = _allocate_budgets(texts, _MAX_SOURCE_CHARS)
+    budgets = _allocate_budgets(texts, QUIZ_MAX_SOURCE_CHARS)
     parts = [texts[idx][:budgets[idx]] for idx in range(len(texts)) if budgets[idx] > 0]
     return "\n\n".join(parts), budgets
 
 
-def _normalize_question(item):
+def _normalize_question(item, *, canonical_lookup=None):
     if not isinstance(item, dict):
         return None
 
@@ -188,13 +203,25 @@ def _normalize_question(item):
         return None
 
     if isinstance(topics, list):
-        normalized_topics = [str(t).strip() for t in topics if isinstance(t, str) and t.strip()]
+        raw_topic_strings = [
+            str(t) for t in topics if isinstance(t, str) and t.strip()
+        ]
     elif isinstance(topic, str) and topic.strip():
-        normalized_topics = [topic.strip()]
+        raw_topic_strings = [topic.strip()]
     else:
-        normalized_topics = []
-    if not normalized_topics:
-        return None
+        raw_topic_strings = []
+
+    canonical_topics = []
+    seen_topics = set()
+    lookup = canonical_lookup or {}
+    for raw in raw_topic_strings:
+        key = raw.strip().casefold()
+        canonical = lookup.get(key)
+        if canonical and canonical not in seen_topics:
+            seen_topics.add(canonical)
+            canonical_topics.append(canonical)
+    if not canonical_topics:
+        canonical_topics = [FALLBACK_TOPICS[0]["en"]]
 
     if isinstance(difficulty, str) and difficulty.strip():
         normalized_difficulty = difficulty.strip().title()
@@ -208,13 +235,13 @@ def _normalize_question(item):
         "options": normalized_options,
         "correct_index": resolved_correct_index,
         "explanation": explanation.strip(),
-        "topics": normalized_topics,
+        "topics": canonical_topics,
         "difficulty": normalized_difficulty,
     }
 
 
-def _parse_valid_questions(raw_response):
-    cleaned = _extract_json_payload(raw_response)
+def _parse_valid_questions(raw_response, canonical_lookup=None):
+    cleaned = extract_json_payload(raw_response)
     try:
         parsed = json.loads(cleaned)
     except json.JSONDecodeError as exc:
@@ -225,7 +252,7 @@ def _parse_valid_questions(raw_response):
     valid = []
     discarded = 0
     for item in parsed:
-        normalized = _normalize_question(item)
+        normalized = _normalize_question(item, canonical_lookup=canonical_lookup)
         if normalized is None:
             discarded += 1
             continue
@@ -403,6 +430,7 @@ def _default_set_name(created_at):
 
 
 def _generate_questions_worker(course_id, document_ids, correlation_id):
+    topic_lists = []
     source_texts = []
     empty_text_document_ids = []
     source_document_names = []
@@ -414,6 +442,9 @@ def _generate_questions_worker(course_id, document_ids, correlation_id):
         processed_key = item.get("s3_processed_key")
         if not processed_key:
             raise ValueError(f"Document is not processed yet: {document_id}")
+
+        item = ensure_document_topics(dict(item))
+        topic_lists.append(item["topics"])
         source_document_names.append(
             item.get("original_file_name")
             or item.get("originalFileName")
@@ -426,11 +457,21 @@ def _generate_questions_worker(course_id, document_ids, correlation_id):
             empty_text_document_ids.append(document_id)
         source_texts.append(source_text)
 
+    unified_topics = dedupe_topics_by_en(topic_lists)
+    allowed_en = allowed_en_topic_names(unified_topics)
+    canonical_lookup = build_canonical_topic_lookup(allowed_en)
+    logger.info(
+        "cid=%s allowed_topics=%s count=%s",
+        correlation_id,
+        allowed_en,
+        len(allowed_en),
+    )
+
     if empty_text_document_ids:
         logger.warning("WARNING: Extracted text is empty for documents: %s", empty_text_document_ids)
 
     input_text, budgets = _build_balanced_context(source_texts)
-    input_text = _truncate_source_text(input_text)
+    input_text = truncate_source_text(input_text, QUIZ_MAX_SOURCE_CHARS)
     logger.info(
         "cid=%s built_balanced_context documents=%s total_input_len=%s budgets=%s",
         correlation_id,
@@ -439,18 +480,20 @@ def _generate_questions_worker(course_id, document_ids, correlation_id):
         budgets,
     )
 
-    from openai import OpenAI
-
-    api_key, model_name = _openai_config()
-    client = OpenAI(api_key=api_key)
+    _, model_name = openai_config()
+    client = get_openai_client()
     completion = client.chat.completions.create(
         model=model_name,
         messages=[
-            {"role": "system", "content": _SYSTEM_PROMPT},
+            {"role": "system", "content": _build_system_prompt(allowed_en)},
             {"role": "user", "content": input_text},
         ],
         temperature=0.2,
         timeout=60,
+        response_format={
+            "type": "json_schema",
+            "json_schema": _build_question_response_schema(allowed_en),
+        },
     )
     raw_response = completion.choices[0].message.content or ""
     logger.info(
@@ -458,7 +501,9 @@ def _generate_questions_worker(course_id, document_ids, correlation_id):
         correlation_id,
         len(raw_response),
     )
-    valid_questions, discarded_count, cleaned_response = _parse_valid_questions(raw_response)
+    valid_questions, discarded_count, cleaned_response = _parse_valid_questions(
+        raw_response, canonical_lookup=canonical_lookup
+    )
 
     if not valid_questions:
         logger.error(

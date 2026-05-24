@@ -345,6 +345,7 @@ Resources:
       Handler: process_document.lambda_handler
       Runtime: python3.9
       Timeout: 300
+      MemorySize: 512
       # LabRole must include:
       # - s3:GetObject on RawUploadsBucket objects
       # - s3:HeadObject on RawUploadsBucket (size gate before Textract)
@@ -361,6 +362,8 @@ Resources:
           # function does not depend on the bucket resource. That breaks the Bucket<->Lambda cycle
           # when NotificationConfiguration on the bucket references this function.
           UPLOAD_BUCKET: !Sub "limdocs-raw-uploads-${AWS::AccountId}"
+          OPENAI_API_KEY: !Ref OpenAIApiKey
+          OPENAI_MODEL_NAME: "gpt-4.1-mini"
       # S3 trigger: see RawUploadsBucket.NotificationConfiguration and ProcessDocumentS3InvokePermission
 
   GetCourseDocumentsFunction:
