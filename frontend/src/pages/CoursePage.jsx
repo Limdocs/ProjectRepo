@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { fetchAuthSession, getCurrentUser } from 'aws-amplify/auth'
 import './CoursePage.css'
@@ -8,6 +8,7 @@ import {
   deleteCourse,
   getAttemptAnswers,
   getCourseAttempts,
+  getCourseProgress,
   getUserCourses,
   submitAttempt,
 } from '../services/coursesService.js'
@@ -157,6 +158,55 @@ function getScoreTier(score) {
   if (numericScore >= 80) return 'high'
   if (numericScore >= 60) return 'medium'
   return 'low'
+}
+
+const WEAKNESS_DIFFICULTIES = ['Easy', 'Medium', 'Hard']
+
+const WEAKNESS_DIFFICULTY_LABEL_KEYS = {
+  Easy: 'weaknessDifficultyEasy',
+  Medium: 'weaknessDifficultyMedium',
+  Hard: 'weaknessDifficultyHard',
+}
+
+function normalizeTopics(doc) {
+  const raw = doc?.topics
+  return Array.isArray(raw) ? raw.filter((t) => t?.en || t?.he) : []
+}
+
+function getTopicLabel(topic, lang) {
+  if (lang === 'he') return (topic.he || topic.en || '').trim() || topic.en
+  return (topic.en || topic.he || '').trim()
+}
+
+function buildTopicCatalog(documents) {
+  const byEn = new Map()
+  for (const doc of documents) {
+    for (const topic of normalizeTopics(doc)) {
+      const en = (topic.en || '').trim()
+      if (en && !byEn.has(en)) byEn.set(en, topic)
+    }
+  }
+  return byEn
+}
+
+function resolveMatrixTopicLabel(englishKey, catalog, lang) {
+  const topic = catalog.get(englishKey)
+  if (topic) return getTopicLabel(topic, lang)
+  return englishKey
+}
+
+function masteryPercent(correct, total) {
+  const t = Number(total) || 0
+  const c = Number(correct) || 0
+  if (t <= 0) return null
+  return Math.round((c / t) * 100)
+}
+
+function getMasteryTierClass(pct) {
+  if (pct == null) return 'course-page__mastery-fill--none'
+  if (pct < 50) return 'course-page__mastery-fill--low'
+  if (pct < 80) return 'course-page__mastery-fill--mid'
+  return 'course-page__mastery-fill--high'
 }
 
 function mapAttemptAnswersToPractice(questions, answersByQuestionId) {
@@ -342,6 +392,7 @@ export default function CoursePage() {
     const tab = searchParams.get('tab')
     if (tab === 'questionSets') return 'questionSets'
     if (tab === 'attempts') return 'attempts'
+    if (tab === 'weaknesses') return 'weaknesses'
     return 'materials'
   })
   const [documents, setDocuments] = useState([])
@@ -393,6 +444,9 @@ export default function CoursePage() {
   const [loadingAttemptId, setLoadingAttemptId] = useState(null)
   const [attemptPendingDelete, setAttemptPendingDelete] = useState(null)
   const [isDeletingAttempt, setIsDeletingAttempt] = useState(false)
+  const [progressMatrix, setProgressMatrix] = useState({})
+  const [progressLoading, setProgressLoading] = useState(false)
+  const [progressError, setProgressError] = useState(null)
   const fileInputRef = useRef(null)
   const dragDepthRef = useRef(0)
   const skipSetAutoLoadRef = useRef(false)
@@ -597,10 +651,39 @@ export default function CoursePage() {
     }
   }, [courseId, t])
 
+  const loadCourseProgress = useCallback(async () => {
+    if (!courseId) return
+    setProgressLoading(true)
+    setProgressError(null)
+    try {
+      const session = await fetchAuthSession()
+      const idToken = session.tokens?.idToken?.toString()
+      if (!idToken) {
+        setProgressMatrix({})
+        setProgressError(t.coursePage.uploadMissingSession)
+        return
+      }
+      const matrix = await getCourseProgress(courseId, idToken)
+      setProgressMatrix(matrix && typeof matrix === 'object' ? matrix : {})
+    } catch (err) {
+      const apiMsg = err?.response?.data?.message
+      setProgressError(
+        typeof apiMsg === 'string' && apiMsg.trim()
+          ? apiMsg.trim()
+          : t.coursePage.weaknessesLoadError,
+      )
+      setProgressMatrix({})
+    } finally {
+      setProgressLoading(false)
+    }
+  }, [courseId, t])
+
   useEffect(() => {
-    if (authStatus !== 'authed' || !courseId || activeTab !== 'materials') return
-    loadDocuments()
-  }, [authStatus, courseId, activeTab, loadDocuments])
+    if (authStatus !== 'authed' || !courseId) return
+    loadDocuments({ silent: activeTab !== 'materials' })
+    // Prefetch once per course/auth; silent when landing on a non-materials tab.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authStatus, courseId, loadDocuments])
 
   useEffect(() => {
     if (authStatus !== 'authed' || !courseId || activeTab !== 'questionSets') return
@@ -627,6 +710,11 @@ export default function CoursePage() {
       loadQuestionSets()
     }
   }, [authStatus, courseId, activeTab, loadCourseAttempts, loadQuestionSets, questionSets.length])
+
+  useEffect(() => {
+    if (authStatus !== 'authed' || !courseId || activeTab !== 'weaknesses') return
+    loadCourseProgress()
+  }, [authStatus, courseId, activeTab, loadCourseProgress])
 
   useEffect(() => {
     if (activeTab !== 'attempts') return
@@ -905,6 +993,8 @@ export default function CoursePage() {
       setActiveTab('questionSets')
     } else if (tabParam === 'attempts' && activeTab !== 'attempts') {
       setActiveTab('attempts')
+    } else if (tabParam === 'weaknesses' && activeTab !== 'weaknesses') {
+      setActiveTab('weaknesses')
     } else if (!tabParam && activeTab !== 'materials') {
       setActiveTab('materials')
     }
@@ -936,6 +1026,9 @@ export default function CoursePage() {
       }
     } else if (activeTab === 'attempts') {
       nextParams.set('tab', 'attempts')
+      nextParams.delete('set')
+    } else if (activeTab === 'weaknesses') {
+      nextParams.set('tab', 'weaknesses')
       nextParams.delete('set')
     } else {
       nextParams.delete('tab')
@@ -987,6 +1080,26 @@ export default function CoursePage() {
     return () => window.clearTimeout(timer)
   }, [uploadSuccess, isUploadModalOpen, closeUploadModal])
 
+  const topicCatalog = useMemo(() => buildTopicCatalog(documents), [documents])
+
+  const resolvedWeaknessRows = useMemo(() => {
+    const rows = Object.entries(progressMatrix).map(([englishKey, difficulties]) => {
+      const displayLabel = resolveMatrixTopicLabel(englishKey, topicCatalog, lang)
+      const cells = WEAKNESS_DIFFICULTIES.map((diff) => {
+        const cell = difficulties?.[diff] ?? {}
+        const total = Number(cell.total) || 0
+        const correct = Number(cell.correct) || 0
+        const pct = masteryPercent(correct, total)
+        return { difficulty: diff, correct, total, pct, tierClass: getMasteryTierClass(pct) }
+      })
+      return { englishKey, displayLabel, cells }
+    })
+    rows.sort((a, b) =>
+      a.displayLabel.localeCompare(b.displayLabel, lang === 'he' ? 'he' : 'en'),
+    )
+    return rows
+  }, [progressMatrix, topicCatalog, lang])
+
   if (authStatus === 'loading') {
     return (
       <main className="course-page" dir={dir} lang={lang}>
@@ -1010,6 +1123,9 @@ export default function CoursePage() {
   const showQuestionSetDetail = Boolean(
     selectedQuestionSet && (inQuizSession || setQuestionsLoading),
   )
+  const showWeaknessesSkeleton =
+    (progressLoading && resolvedWeaknessRows.length === 0) ||
+    (documentsLoading && topicCatalog.size === 0 && resolvedWeaknessRows.length === 0)
 
   const handleDeleteClick = (doc, id) => {
     if (deletingDocId) return
@@ -1349,6 +1465,16 @@ export default function CoursePage() {
             >
               {t.coursePage.tabAttempts}
             </button>
+            <button
+              type="button"
+              className={`course-page__inner-nav-item ${
+                activeTab === 'weaknesses' ? 'course-page__inner-nav-item--active' : ''
+              }`}
+              onClick={() => setActiveTab('weaknesses')}
+              aria-current={activeTab === 'weaknesses' ? 'page' : undefined}
+            >
+              {t.coursePage.tabWeaknesses}
+            </button>
           </div>
         </nav>
 
@@ -1467,6 +1593,7 @@ export default function CoursePage() {
                     const deletingThisDoc = deletingDocId === String(id)
                     const docId = String(id)
                     const isSelected = selectedDocIds.includes(docId)
+                    const topics = normalizeTopics(doc)
                     return (
                       <li
                         key={String(id)}
@@ -1495,6 +1622,23 @@ export default function CoursePage() {
                           <span className="course-page__doc-card-date">
                             {formatDocumentDate(created, lang)}
                           </span>
+                          {topics.length > 0 ? (
+                            <ul
+                              className="course-page__doc-topics"
+                              aria-label={t.coursePage.documentTopicsAria}
+                            >
+                              {topics.map((topic) => {
+                                const topicKey = `${String(id)}-${topic.en || topic.he}`
+                                return (
+                                  <li key={topicKey}>
+                                    <span className="course-page__topic-chip">
+                                      {getTopicLabel(topic, lang)}
+                                    </span>
+                                  </li>
+                                )
+                              })}
+                            </ul>
+                          ) : null}
                         </div>
                         {!isInteractive ? <span className="mini-spinner" aria-hidden /> : null}
                         {showStatusBadge ? (
@@ -1805,6 +1949,144 @@ export default function CoursePage() {
                   ) : null}
                 </>
               )}
+            </section>
+          ) : null}
+          {activeTab === 'weaknesses' ? (
+            <section aria-label={t.coursePage.weaknessesSectionLabel}>
+              <div className="course-page__materials-header">
+                <h2 className="course-page__materials-heading course-page__materials-heading--panel">
+                  {t.coursePage.weaknessesHeading}
+                </h2>
+              </div>
+
+              {showWeaknessesSkeleton ? (
+                <div className="course-page__documents-skeleton" aria-busy="true">
+                  <div className="course-page__documents-skeleton-row" />
+                  <div className="course-page__documents-skeleton-row" />
+                  <p className="course-page__documents-state">{t.coursePage.weaknessesLoading}</p>
+                </div>
+              ) : null}
+
+              {progressError && !showWeaknessesSkeleton ? (
+                <p className="course-page__documents-error" role="alert">
+                  {progressError}
+                </p>
+              ) : null}
+
+              {!showWeaknessesSkeleton &&
+              !progressLoading &&
+              !progressError &&
+              resolvedWeaknessRows.length === 0 ? (
+                <div className="course-page__weakness-empty">
+                  <svg
+                    className="course-page__weakness-empty-icon"
+                    width="80"
+                    height="64"
+                    viewBox="0 0 80 64"
+                    fill="none"
+                    aria-hidden="true"
+                  >
+                    <rect
+                      x="8"
+                      y="12"
+                      width="64"
+                      height="40"
+                      rx="6"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      opacity="0.35"
+                    />
+                    <path
+                      d="M20 40h12M36 32h8M52 36h12"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      opacity="0.5"
+                    />
+                  </svg>
+                  <h3 className="course-page__weakness-empty-title">
+                    {t.coursePage.weaknessesEmptyTitle}
+                  </h3>
+                  <p className="course-page__weakness-empty-body">
+                    {t.coursePage.weaknessesEmptyBody}
+                  </p>
+                  <button
+                    type="button"
+                    className="course-page__upload-btn"
+                    onClick={() => setActiveTab('questionSets')}
+                  >
+                    {t.coursePage.weaknessesEmptyCta}
+                  </button>
+                </div>
+              ) : null}
+
+              {!showWeaknessesSkeleton &&
+              !progressError &&
+              resolvedWeaknessRows.length > 0 ? (
+                <ul
+                  className="course-page__weakness-list"
+                  aria-label={t.coursePage.weaknessListAriaLabel}
+                >
+                  {resolvedWeaknessRows.map((row) => (
+                    <li key={row.englishKey}>
+                      <article className="course-page__weakness-card">
+                        <h3 className="course-page__weakness-card-title">{row.displayLabel}</h3>
+                        <div className="course-page__weakness-rows">
+                          {row.cells.map((cell) => {
+                            const diffLabelKey = WEAKNESS_DIFFICULTY_LABEL_KEYS[cell.difficulty]
+                            const diffLabel = diffLabelKey
+                              ? t.coursePage[diffLabelKey]
+                              : cell.difficulty
+                            const practiced = cell.total > 0
+                            const statsText = practiced
+                              ? tx(t.coursePage.weaknessStatsPracticed, {
+                                  correct: cell.correct,
+                                  total: cell.total,
+                                })
+                              : '—'
+                            const masteryText = practiced
+                              ? tx(t.coursePage.weaknessMasteryLabel, { percent: cell.pct })
+                              : t.coursePage.weaknessNotYetPracticed
+                            return (
+                              <div
+                                key={`${row.englishKey}-${cell.difficulty}`}
+                                className="course-page__weakness-row"
+                              >
+                                <span className="course-page__weakness-difficulty">
+                                  {diffLabel}
+                                </span>
+                                <span className="course-page__weakness-stats">{statsText}</span>
+                                <div className="course-page__weakness-mastery">
+                                  <span className="course-page__weakness-mastery-text">
+                                    {masteryText}
+                                  </span>
+                                  <div
+                                    className="course-page__weakness-bar-track"
+                                    role="progressbar"
+                                    aria-valuemin={0}
+                                    aria-valuemax={100}
+                                    {...(practiced
+                                      ? { 'aria-valuenow': cell.pct }
+                                      : {
+                                          'aria-valuetext':
+                                            t.coursePage.weaknessNotYetPracticed,
+                                        })}
+                                  >
+                                    <span
+                                      className={`course-page__mastery-fill ${cell.tierClass}`}
+                                      style={{ width: practiced ? `${cell.pct}%` : '0%' }}
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </article>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
             </section>
           ) : null}
         </div>

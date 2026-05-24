@@ -76,6 +76,33 @@ export async function submitAttempt(courseId, setId, payload, idToken) {
   return response?.data ?? {}
 }
 
+export async function getCourseProgress(courseId, idToken) {
+  if (!apiBaseUrl) {
+    throw new Error('API is not configured. Set VITE_API_URL.')
+  }
+  if (!courseId) {
+    throw new Error('Missing courseId.')
+  }
+  if (!idToken) {
+    throw new Error('Missing idToken.')
+  }
+
+  const response = await axios.get(
+    `${apiBaseUrl}/courses/${encodeURIComponent(courseId)}/progress`,
+    {
+      headers: {
+        Authorization: `Bearer ${idToken}`,
+      },
+    },
+  )
+
+  const payload = response?.data
+  if (payload?.matrix && typeof payload.matrix === 'object') {
+    return payload.matrix
+  }
+  return {}
+}
+
 export async function getCourseAttempts(courseId, idToken) {
   if (!apiBaseUrl) {
     throw new Error('API is not configured. Set VITE_API_URL.')

@@ -59,51 +59,60 @@ def _build_system_prompt(allowed_topic_names):
         "Difficulty: assign Easy, Medium, or Hard based on academic depth.\n"
         "Cross-document synthesis: ensure at least 1–2 questions synthesize or compare "
         "information across multiple provided documents when multiple documents are present.\n\n"
-        "Return ONLY a valid JSON array of objects. Each object must include:\n"
+        'Return ONLY a valid JSON object with a single key "questions" whose value is an '
+        "array of question objects. Each question object must include:\n"
         "question (string), options (array of exactly 4 strings), correct_index (integer 0–3),\n"
         "explanation (string), topics (array of strings from the allowed list only),\n"
-        "difficulty (Easy|Medium|Hard).\n"
-        "Optionally include answer (string) redundant with one option."
+        "difficulty (Easy|Medium|Hard), answer (string) — must equal options[correct_index].\n"
     )
 
 
 def _build_question_response_schema(allowed_topic_names):
+    question_item_schema = {
+        "type": "object",
+        "additionalProperties": False,
+        "required": [
+            "question",
+            "options",
+            "correct_index",
+            "explanation",
+            "topics",
+            "difficulty",
+            "answer",
+        ],
+        "properties": {
+            "question": {"type": "string"},
+            "options": {
+                "type": "array",
+                "items": {"type": "string"},
+                "minItems": 4,
+                "maxItems": 4,
+            },
+            "correct_index": {"type": "integer", "minimum": 0, "maximum": 3},
+            "explanation": {"type": "string"},
+            "topics": {
+                "type": "array",
+                "items": {"type": "string", "enum": allowed_topic_names},
+                "minItems": 1,
+            },
+            "difficulty": {
+                "type": "string",
+                "enum": ["Easy", "Medium", "Hard"],
+            },
+            "answer": {"type": "string"},
+        },
+    }
     return {
         "name": "quiz_questions",
         "strict": True,
         "schema": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "additionalProperties": False,
-                "required": [
-                    "question",
-                    "options",
-                    "correct_index",
-                    "explanation",
-                    "topics",
-                    "difficulty",
-                ],
-                "properties": {
-                    "question": {"type": "string"},
-                    "options": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "minItems": 4,
-                        "maxItems": 4,
-                    },
-                    "correct_index": {"type": "integer", "minimum": 0, "maximum": 3},
-                    "explanation": {"type": "string"},
-                    "topics": {
-                        "type": "array",
-                        "items": {"type": "string", "enum": allowed_topic_names},
-                        "minItems": 1,
-                    },
-                    "difficulty": {
-                        "type": "string",
-                        "enum": ["Easy", "Medium", "Hard"],
-                    },
-                    "answer": {"type": "string"},
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["questions"],
+            "properties": {
+                "questions": {
+                    "type": "array",
+                    "items": question_item_schema,
                 },
             },
         },
@@ -246,8 +255,15 @@ def _parse_valid_questions(raw_response, canonical_lookup=None):
         parsed = json.loads(cleaned)
     except json.JSONDecodeError as exc:
         raise ValueError(f"Model response is not valid JSON after cleaning: {exc}") from exc
-    if not isinstance(parsed, list):
-        raise ValueError("Model response must be a JSON array")
+    if isinstance(parsed, dict):
+        questions = parsed.get("questions")
+        if not isinstance(questions, list):
+            raise ValueError("Model response object must include a 'questions' JSON array")
+        parsed = questions
+    elif not isinstance(parsed, list):
+        raise ValueError(
+            "Model response must be a JSON object with a 'questions' array"
+        )
 
     valid = []
     discarded = 0

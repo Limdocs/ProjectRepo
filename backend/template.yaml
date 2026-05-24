@@ -229,6 +229,22 @@ Resources:
         - AttributeName: question_id
           KeyType: RANGE
 
+  UserProgressTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: user_progress
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: user_name
+          AttributeType: S
+        - AttributeName: course_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: user_name
+          KeyType: HASH
+        - AttributeName: course_id
+          KeyType: RANGE
+
   LimdocsApi:
     Type: AWS::Serverless::Api
     Properties:
@@ -542,7 +558,8 @@ Resources:
       Handler: submit_attempt.lambda_handler
       Runtime: python3.9
       # LabRole must include dynamodb:GetItem/Query on question_sets and questions,
-      # and dynamodb:PutItem/BatchWriteItem on attempts and attempt_answers.
+      # dynamodb:PutItem/BatchWriteItem on attempts and attempt_answers, and
+      # dynamodb:UpdateItem on user_progress (upsert + atomic increment only).
       Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/LabRole"
       Environment:
         Variables:
@@ -551,6 +568,7 @@ Resources:
           QUESTIONS_TABLE: !Ref QuestionsTable
           ATTEMPTS_TABLE: !Ref AttemptsTable
           ATTEMPT_ANSWERS_TABLE: !Ref AttemptAnswersTable
+          USER_PROGRESS_TABLE: !Ref UserProgressTable
           QUESTIONS_SET_INDEX: SetIdIndex
       Events:
         ApiEvent:
@@ -580,6 +598,35 @@ Resources:
             RestApiId: !Ref LimdocsApi
             Path: /courses/{courseId}/attempts
             Method: get
+
+  GetUserProgressFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: limdocs-get-user-progress
+      CodeUri: src/
+      Handler: get_user_progress.lambda_handler
+      Runtime: python3.9
+      # LabRole must include dynamodb:GetItem on user_progress table.
+      Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/LabRole"
+      Environment:
+        Variables:
+          COURSES_TABLE: !Ref LimdocsCoursesTable
+          USER_PROGRESS_TABLE: !Ref UserProgressTable
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref LimdocsApi
+            Path: /courses/{courseId}/progress
+            Method: get
+        OptionsApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref LimdocsApi
+            Path: /courses/{courseId}/progress
+            Method: options
+            Auth:
+              Authorizer: NONE
 
   GetAttemptAnswersFunction:
     Type: AWS::Serverless::Function
@@ -685,6 +732,10 @@ Outputs:
   AttemptAnswersTableName:
     Description: DynamoDB table name for per-question attempt answers
     Value: !Ref AttemptAnswersTable
+
+  UserProgressTableName:
+    Description: DynamoDB table name for per-user per-course topic/difficulty mastery matrix
+    Value: !Ref UserProgressTable
 
   GenerateQuestionsWorkerFunctionName:
     Description: Async quiz generation worker Lambda (not API-exposed)
