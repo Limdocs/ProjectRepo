@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { Navigate, useNavigate } from 'react-router-dom'
+import { useEffect, useRef, useState } from 'react'
+import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import {
   fetchUserAttributes,
   fetchAuthSession,
@@ -8,7 +8,9 @@ import {
 } from 'aws-amplify/auth'
 import './HomePage.css'
 import { useLanguageControl } from '../language-control/LanguageControlProvider.jsx'
-import { deleteCourse, getUserCourses } from '../services/coursesService.js'
+import { deleteCourse, getCourseProgress, getUserCourses } from '../services/coursesService.js'
+import { getCourseDocuments } from '../services/documentsService.js'
+import { buildCourseCardStats } from '../utils/courseCardStats.js'
 
 function IconHome() {
   return (
@@ -217,19 +219,24 @@ function logAuthError(context, error) {
   console.warn('[Auth i18n draft]', context, { name, message, error })
 }
 
-function getCourseDocCount(course) {
-  const raw = course?.document_count ?? course?.documents_count ?? course?.materials_count
-  if (raw == null || raw === '') return 0
-  const n = Number(raw)
-  return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0
+function normalizeCourseId(course) {
+  const raw = course?.course_id ?? course?.id ?? course?.courseId
+  return String(raw ?? '').trim()
 }
 
-function getCourseProgress(course) {
-  const raw = course?.progress_percent ?? course?.progress ?? course?.completion_percent
-  if (raw == null || raw === '') return 0
-  const n = Number(raw)
-  if (!Number.isFinite(n)) return 0
-  return Math.min(100, Math.max(0, Math.round(n)))
+function activeCourseIdSet(courses) {
+  return new Set(
+    (Array.isArray(courses) ? courses : [])
+      .map(normalizeCourseId)
+      .filter(Boolean),
+  )
+}
+
+function pruneCourseStatsToActive(prev, activeIds) {
+  if (!prev || typeof prev !== 'object') return {}
+  return Object.fromEntries(
+    Object.entries(prev).filter(([id]) => activeIds.has(id)),
+  )
 }
 
 function formatRelativeActivity(iso, lang) {
@@ -260,6 +267,7 @@ function pickDisplayInitials(name) {
 
 export default function HomePage() {
   const navigate = useNavigate()
+  const location = useLocation()
   const { t, lang, setLang, dir, tx } = useLanguageControl()
   const [status, setStatus] = useState('loading')
   const [displayName, setDisplayName] = useState('')
@@ -275,6 +283,9 @@ export default function HomePage() {
   const [isDeletingCourse, setIsDeletingCourse] = useState(false)
   const [deleteCourseError, setDeleteCourseError] = useState('')
   const [courseToDelete, setCourseToDelete] = useState(null)
+  const [courseStatsById, setCourseStatsById] = useState({})
+  const [courseStatsLoading, setCourseStatsLoading] = useState(false)
+  const statsFetchGenerationRef = useRef(0)
   const apiBaseUrl = import.meta.env.VITE_API_URL ?? ''
   const [courseDraft, setCourseDraft] = useState({
     name: '',
@@ -347,6 +358,98 @@ export default function HomePage() {
     }
   }, [currentUserId, status, coursesRefreshKey])
 
+  // Per-course materials + progress (2×N GETs). Future: summary endpoint on list API.
+  useEffect(() => {
+    let cancelled = false
+    const generation = ++statsFetchGenerationRef.current
+
+    ;(async () => {
+      if (status !== 'authed' || !currentUserId) return
+
+      const activeIds = activeCourseIdSet(courses)
+      setCourseStatsById((prev) => pruneCourseStatsToActive(prev, activeIds))
+
+      if (!courses.length) {
+        if (!cancelled && generation === statsFetchGenerationRef.current) {
+          setCourseStatsById({})
+          setCourseStatsLoading(false)
+        }
+        return
+      }
+
+      const coursesSnapshot = [...courses]
+      const snapshotIds = activeCourseIdSet(coursesSnapshot)
+
+      try {
+        setCourseStatsLoading(true)
+
+        const session = await fetchAuthSession()
+        const idToken = session.tokens?.idToken?.toString()
+        if (!idToken) {
+          throw new Error('Missing authentication token.')
+        }
+
+        const coursePromises = coursesSnapshot.map(async (course) => {
+          const courseId = normalizeCourseId(course)
+          if (!courseId) return { courseId: '', stats: null }
+
+          const [docsResult, progressResult] = await Promise.allSettled([
+            getCourseDocuments(courseId, idToken),
+            getCourseProgress(courseId, idToken),
+          ])
+
+          const documents =
+            docsResult.status === 'fulfilled' && Array.isArray(docsResult.value)
+              ? docsResult.value
+              : []
+          const progressPayload =
+            progressResult.status === 'fulfilled' ? progressResult.value : null
+
+          return {
+            courseId,
+            stats: buildCourseCardStats(course, documents, progressPayload),
+          }
+        })
+
+        const results = await Promise.allSettled(coursePromises)
+        if (cancelled || generation !== statsFetchGenerationRef.current) return
+
+        const merged = {}
+        for (const result of results) {
+          if (result.status !== 'fulfilled') continue
+          const { courseId, stats } = result.value
+          if (!courseId || !stats || !snapshotIds.has(courseId)) continue
+          merged[courseId] = stats
+        }
+
+        setCourseStatsById((prev) => {
+          const prunedPrev = pruneCourseStatsToActive(prev, snapshotIds)
+          return { ...prunedPrev, ...merged }
+        })
+      } catch (error) {
+        console.error('[home-course-stats-failed]', error)
+        if (!cancelled && generation === statsFetchGenerationRef.current) {
+          setCourseStatsById((prev) => pruneCourseStatsToActive(prev, snapshotIds))
+        }
+      } finally {
+        if (!cancelled && generation === statsFetchGenerationRef.current) {
+          setCourseStatsLoading(false)
+        }
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [
+    status,
+    currentUserId,
+    courses,
+    coursesRefreshKey,
+    location.pathname,
+    location.key,
+  ])
+
   const handleLogout = async () => {
     try {
       await signOut()
@@ -399,11 +502,18 @@ export default function HomePage() {
       }
 
       await deleteCourse(courseToDelete.id, idToken)
+      const deletedId = courseToDelete.id
       setCourses((prev) => {
         const next = prev.filter((course, index) => {
           const id = String(course.course_id ?? course.id ?? course.courseId ?? `course-${index}`)
-          return id !== courseToDelete.id
+          return id !== deletedId
         })
+        return next
+      })
+      setCourseStatsById((prev) => {
+        if (!prev[deletedId]) return prev
+        const next = { ...prev }
+        delete next[deletedId]
         return next
       })
       setIsDeleteCourseOpen(false)
@@ -599,19 +709,24 @@ export default function HomePage() {
                 </li>
               ) : null}
               {courses.map((course) => {
-                const courseId = course.course_id ?? course.id ?? course.courseId ?? ''
+                const courseId = normalizeCourseId(course)
                 const courseName =
                   course.course_name ?? course.name ?? t.home.untitledCourse
-                const docCount = getCourseDocCount(course)
-                const progressPct = getCourseProgress(course)
-                const createdAt = course.created_at ?? course.createdAt
-                const activityPhrase = formatRelativeActivity(
-                  typeof createdAt === 'string' ? createdAt : null,
-                  lang,
-                )
-                const activityLabel = tx(t.home.courseMetaActivity, {
-                  time: activityPhrase ?? '—',
-                })
+                const stats = courseId ? courseStatsById[courseId] : null
+                const statsPending = courseStatsLoading && !stats
+                const docCount = stats?.documentCount ?? 0
+                const progressPct = stats?.progressPercent ?? 0
+                const lastUpdatedIso =
+                  stats?.lastUpdatedIso ??
+                  (typeof (course.created_at ?? course.createdAt) === 'string'
+                    ? course.created_at ?? course.createdAt
+                    : null)
+                const activityPhrase = formatRelativeActivity(lastUpdatedIso, lang)
+                const activityTime = activityPhrase ?? t.home.courseMetaUnknown
+                const activityLabel = tx(t.home.courseMetaActivity, { time: activityTime })
+                const docsLabel = statsPending
+                  ? t.home.courseMetaDocsLoading
+                  : tx(t.home.courseMetaDocs, { count: docCount })
                 return (
                   <li key={String(courseId || courseName)} className="home-page__courses-grid-item">
                     <div className="home-page__course-card-shell">
@@ -627,17 +742,29 @@ export default function HomePage() {
                       >
                         <div className="home-page__course-card-body">
                           <span className="home-page__course-name">{courseName}</span>
-                          <div className="home-page__course-meta">
-                            <span className="home-page__course-meta-item">
+                          <div
+                            className="home-page__course-meta"
+                            aria-label={
+                              statsPending ? t.home.courseCardMetaLoadingAria : undefined
+                            }
+                          >
+                            <span
+                              className={`home-page__course-meta-item${statsPending ? ' home-page__course-meta-item--pending' : ''}`}
+                            >
                               <IconMetaDoc />
-                              <span>{tx(t.home.courseMetaDocs, { count: docCount })}</span>
+                              <span>{docsLabel}</span>
                             </span>
-                            <span className="home-page__course-meta-item">
+                            <span
+                              className={`home-page__course-meta-item${statsPending ? ' home-page__course-meta-item--pending' : ''}`}
+                            >
                               <IconMetaClock />
                               <span>{activityLabel}</span>
                             </span>
                           </div>
-                          <div className="home-page__course-progress-block">
+                          <div
+                            className="home-page__course-progress-block"
+                            aria-busy={statsPending ? 'true' : undefined}
+                          >
                             <div className="home-page__course-progress-labels">
                               <span>{t.home.progressLabel}</span>
                               <span>{progressPct}%</span>
@@ -764,7 +891,7 @@ export default function HomePage() {
                   {t.home.cancel}
                 </button>
                 <button type="submit" className="home-page__modal-submit" disabled={isCreatingCourse}>
-                  {isCreatingCourse ? 'Creating...' : t.home.saveCourse}
+                  {isCreatingCourse ? t.home.creatingCourse : t.home.saveCourse}
                 </button>
               </div>
               {createCourseError ? (

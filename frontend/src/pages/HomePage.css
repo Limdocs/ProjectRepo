@@ -557,6 +557,10 @@
   gap: 0.3rem;
 }
 
+.home-page__course-meta-item--pending {
+  opacity: 0.55;
+}
+
 .home-page__meta-icon {
   flex-shrink: 0;
   opacity: 0.85;
