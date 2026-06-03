@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { fetchAuthSession, getCurrentUser } from 'aws-amplify/auth'
 import './CoursePage.css'
+import TopicScoreChart from '../components/TopicScoreChart.jsx'
 import { useLanguageControl } from '../language-control/LanguageControlProvider.jsx'
 import {
   deleteAttempt,
@@ -23,6 +24,7 @@ import {
   getUploadUrl,
   uploadFileToS3,
 } from '../services/documentsService.js'
+import { resolveProgressTopics } from '../utils/topicScoring.js'
 
 const FINAL_PROCESSING_STATUSES = new Set(['READY', 'FAILED', 'ERROR'])
 const QUIZ_ELIGIBLE_STATUSES = new Set(['READY', 'FAILED'])
@@ -166,6 +168,18 @@ const WEAKNESS_DIFFICULTY_LABEL_KEYS = {
   Easy: 'weaknessDifficultyEasy',
   Medium: 'weaknessDifficultyMedium',
   Hard: 'weaknessDifficultyHard',
+}
+
+const WEAKNESS_STATUS_LABEL_KEYS = {
+  weak: 'weaknessStatusWeak',
+  medium: 'weaknessStatusMedium',
+  strong: 'weaknessStatusStrong',
+}
+
+const WEAKNESS_STATUS_CHIP_CLASS = {
+  weak: 'course-page__weakness-status-chip--low',
+  medium: 'course-page__weakness-status-chip--mid',
+  strong: 'course-page__weakness-status-chip--high',
 }
 
 function normalizeTopics(doc) {
@@ -445,6 +459,7 @@ export default function CoursePage() {
   const [attemptPendingDelete, setAttemptPendingDelete] = useState(null)
   const [isDeletingAttempt, setIsDeletingAttempt] = useState(false)
   const [progressMatrix, setProgressMatrix] = useState({})
+  const [progressTopics, setProgressTopics] = useState(null)
   const [progressLoading, setProgressLoading] = useState(false)
   const [progressError, setProgressError] = useState(null)
   const fileInputRef = useRef(null)
@@ -660,11 +675,13 @@ export default function CoursePage() {
       const idToken = session.tokens?.idToken?.toString()
       if (!idToken) {
         setProgressMatrix({})
+        setProgressTopics(null)
         setProgressError(t.coursePage.uploadMissingSession)
         return
       }
-      const matrix = await getCourseProgress(courseId, idToken)
-      setProgressMatrix(matrix && typeof matrix === 'object' ? matrix : {})
+      const payload = await getCourseProgress(courseId, idToken)
+      setProgressMatrix(payload?.matrix && typeof payload.matrix === 'object' ? payload.matrix : {})
+      setProgressTopics(Array.isArray(payload?.topics) ? payload.topics : null)
     } catch (err) {
       const apiMsg = err?.response?.data?.message
       setProgressError(
@@ -673,6 +690,7 @@ export default function CoursePage() {
           : t.coursePage.weaknessesLoadError,
       )
       setProgressMatrix({})
+      setProgressTopics(null)
     } finally {
       setProgressLoading(false)
     }
@@ -1083,22 +1101,28 @@ export default function CoursePage() {
   const topicCatalog = useMemo(() => buildTopicCatalog(documents), [documents])
 
   const resolvedWeaknessRows = useMemo(() => {
-    const rows = Object.entries(progressMatrix).map(([englishKey, difficulties]) => {
+    const topics = resolveProgressTopics({ matrix: progressMatrix, topics: progressTopics })
+    return topics.map((topicData) => {
+      const englishKey = topicData.topic
       const displayLabel = resolveMatrixTopicLabel(englishKey, topicCatalog, lang)
+      const breakdown = topicData.difficulty_breakdown || {}
       const cells = WEAKNESS_DIFFICULTIES.map((diff) => {
-        const cell = difficulties?.[diff] ?? {}
+        const key = diff.toLowerCase()
+        const cell = breakdown[key] ?? {}
         const total = Number(cell.total) || 0
         const correct = Number(cell.correct) || 0
-        const pct = masteryPercent(correct, total)
+        const pct = cell.score != null ? cell.score : masteryPercent(correct, total)
         return { difficulty: diff, correct, total, pct, tierClass: getMasteryTierClass(pct) }
       })
-      return { englishKey, displayLabel, cells }
+      return {
+        englishKey,
+        displayLabel,
+        score: topicData.score,
+        status: topicData.status,
+        cells,
+      }
     })
-    rows.sort((a, b) =>
-      a.displayLabel.localeCompare(b.displayLabel, lang === 'he' ? 'he' : 'en'),
-    )
-    return rows
-  }, [progressMatrix, topicCatalog, lang])
+  }, [progressMatrix, progressTopics, topicCatalog, lang])
 
   if (authStatus === 'loading') {
     return (
@@ -2024,69 +2048,97 @@ export default function CoursePage() {
               {!showWeaknessesSkeleton &&
               !progressError &&
               resolvedWeaknessRows.length > 0 ? (
-                <ul
-                  className="course-page__weakness-list"
-                  aria-label={t.coursePage.weaknessListAriaLabel}
-                >
-                  {resolvedWeaknessRows.map((row) => (
-                    <li key={row.englishKey}>
-                      <article className="course-page__weakness-card">
-                        <h3 className="course-page__weakness-card-title">{row.displayLabel}</h3>
-                        <div className="course-page__weakness-rows">
-                          {row.cells.map((cell) => {
-                            const diffLabelKey = WEAKNESS_DIFFICULTY_LABEL_KEYS[cell.difficulty]
-                            const diffLabel = diffLabelKey
-                              ? t.coursePage[diffLabelKey]
-                              : cell.difficulty
-                            const practiced = cell.total > 0
-                            const statsText = practiced
-                              ? tx(t.coursePage.weaknessStatsPracticed, {
-                                  correct: cell.correct,
-                                  total: cell.total,
-                                })
-                              : '—'
-                            const masteryText = practiced
-                              ? tx(t.coursePage.weaknessMasteryLabel, { percent: cell.pct })
-                              : t.coursePage.weaknessNotYetPracticed
-                            return (
-                              <div
-                                key={`${row.englishKey}-${cell.difficulty}`}
-                                className="course-page__weakness-row"
-                              >
-                                <span className="course-page__weakness-difficulty">
-                                  {diffLabel}
+                <>
+                  <TopicScoreChart
+                    topics={resolvedWeaknessRows}
+                    labels={t.coursePage}
+                    txFn={tx}
+                  />
+                  <ul
+                    className="course-page__weakness-list"
+                    aria-label={t.coursePage.weaknessListAriaLabel}
+                  >
+                    {resolvedWeaknessRows.map((row) => {
+                      const statusLabelKey = WEAKNESS_STATUS_LABEL_KEYS[row.status]
+                      const statusLabel = statusLabelKey
+                        ? t.coursePage[statusLabelKey]
+                        : row.status
+                      const statusChipClass =
+                        WEAKNESS_STATUS_CHIP_CLASS[row.status] ??
+                        WEAKNESS_STATUS_CHIP_CLASS.weak
+                      return (
+                        <li key={row.englishKey}>
+                          <article className="course-page__weakness-card">
+                            <div className="course-page__weakness-card-header">
+                              <h3 className="course-page__weakness-card-title">{row.displayLabel}</h3>
+                              <div className="course-page__weakness-card-meta">
+                                <span className="course-page__weakness-card-score">
+                                  {tx(t.coursePage.weaknessTopicScoreLabel, { score: row.score })}
                                 </span>
-                                <span className="course-page__weakness-stats">{statsText}</span>
-                                <div className="course-page__weakness-mastery">
-                                  <span className="course-page__weakness-mastery-text">
-                                    {masteryText}
-                                  </span>
-                                  <div
-                                    className="course-page__weakness-bar-track"
-                                    role="progressbar"
-                                    aria-valuemin={0}
-                                    aria-valuemax={100}
-                                    {...(practiced
-                                      ? { 'aria-valuenow': cell.pct }
-                                      : {
-                                          'aria-valuetext':
-                                            t.coursePage.weaknessNotYetPracticed,
-                                        })}
-                                  >
-                                    <span
-                                      className={`course-page__mastery-fill ${cell.tierClass}`}
-                                      style={{ width: practiced ? `${cell.pct}%` : '0%' }}
-                                    />
-                                  </div>
-                                </div>
+                                <span
+                                  className={`course-page__weakness-status-chip ${statusChipClass}`}
+                                >
+                                  {statusLabel}
+                                </span>
                               </div>
-                            )
-                          })}
-                        </div>
-                      </article>
-                    </li>
-                  ))}
-                </ul>
+                            </div>
+                            <div className="course-page__weakness-rows">
+                              {row.cells.map((cell) => {
+                                const diffLabelKey = WEAKNESS_DIFFICULTY_LABEL_KEYS[cell.difficulty]
+                                const diffLabel = diffLabelKey
+                                  ? t.coursePage[diffLabelKey]
+                                  : cell.difficulty
+                                const practiced = cell.total > 0
+                                const statsText = practiced
+                                  ? tx(t.coursePage.weaknessStatsPracticed, {
+                                      correct: cell.correct,
+                                      total: cell.total,
+                                    })
+                                  : '—'
+                                const masteryText = practiced
+                                  ? tx(t.coursePage.weaknessMasteryLabel, { percent: cell.pct })
+                                  : t.coursePage.weaknessNotYetPracticed
+                                return (
+                                  <div
+                                    key={`${row.englishKey}-${cell.difficulty}`}
+                                    className="course-page__weakness-row"
+                                  >
+                                    <span className="course-page__weakness-difficulty">
+                                      {diffLabel}
+                                    </span>
+                                    <span className="course-page__weakness-stats">{statsText}</span>
+                                    <div className="course-page__weakness-mastery">
+                                      <span className="course-page__weakness-mastery-text">
+                                        {masteryText}
+                                      </span>
+                                      <div
+                                        className="course-page__weakness-bar-track"
+                                        role="progressbar"
+                                        aria-valuemin={0}
+                                        aria-valuemax={100}
+                                        {...(practiced
+                                          ? { 'aria-valuenow': cell.pct }
+                                          : {
+                                              'aria-valuetext':
+                                                t.coursePage.weaknessNotYetPracticed,
+                                            })}
+                                      >
+                                        <span
+                                          className={`course-page__mastery-fill ${cell.tierClass}`}
+                                          style={{ width: practiced ? `${cell.pct}%` : '0%' }}
+                                        />
+                                      </div>
+                                    </div>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          </article>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                </>
               ) : null}
             </section>
           ) : null}

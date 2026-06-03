@@ -25,23 +25,6 @@ function IconHome() {
   )
 }
 
-function IconBooks() {
-  return (
-    <svg className="home-page__nav-icon" width="20" height="20" viewBox="0 0 24 24" aria-hidden>
-      <circle cx="4" cy="6" r="1.25" fill="none" stroke="currentColor" strokeWidth="1.5" />
-      <circle cx="4" cy="12" r="1.25" fill="none" stroke="currentColor" strokeWidth="1.5" />
-      <circle cx="4" cy="18" r="1.25" fill="none" stroke="currentColor" strokeWidth="1.5" />
-      <path
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        d="M8 6h13M8 12h13M8 18h10"
-      />
-    </svg>
-  )
-}
-
 function IconLogout() {
   return (
     <svg className="home-page__nav-icon" width="20" height="20" viewBox="0 0 24 24" aria-hidden>
@@ -511,10 +494,6 @@ export default function HomePage() {
           <button type="button" className="home-page__menu-item home-page__menu-item--active">
             <IconHome />
             <span>{t.home.dashboard}</span>
-          </button>
-          <button type="button" className="home-page__menu-item">
-            <IconBooks />
-            <span>{t.home.myCourses}</span>
           </button>
           <button type="button" className="home-page__menu-item">
             <IconNavDocuments />

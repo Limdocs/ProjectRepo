@@ -5,6 +5,7 @@ from decimal import Decimal
 import boto3
 
 from course_access import require_course_owner
+from topic_scoring import compute_topic_scores
 
 COURSES_TABLE = os.environ["COURSES_TABLE"]
 USER_PROGRESS_TABLE = os.environ["USER_PROGRESS_TABLE"]
@@ -86,6 +87,10 @@ def lambda_handler(event, context):
             Key={"user_name": user_sub, "course_id": course_id}
         )
         matrix = _extract_matrix(result.get("Item"))
-        return _response(200, {"matrix": matrix})
+        topics = compute_topic_scores(matrix)
+        return _response(
+            200,
+            {"course_id": course_id, "matrix": matrix, "topics": topics},
+        )
     except Exception as exc:
         return _response(500, {"message": "Internal server error", "error": str(exc)})

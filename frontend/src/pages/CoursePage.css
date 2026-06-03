@@ -1595,10 +1595,180 @@
 }
 
 .course-page__weakness-card-title {
-  margin: 0 0 0.85rem;
+  margin: 0;
   font-size: 1.05rem;
   font-weight: 700;
   letter-spacing: -0.02em;
+}
+
+.course-page__weakness-card-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.65rem 1rem;
+  margin-bottom: 0.85rem;
+}
+
+.course-page__weakness-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem 0.65rem;
+}
+
+.course-page__weakness-card-score {
+  font-size: 0.875rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+.course-page__weakness-status-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1.2;
+  background: color-mix(in srgb, currentColor 12%, var(--surface-elevated));
+}
+
+.course-page__weakness-status-chip--low {
+  color: var(--weakness-mastery-low);
+}
+
+.course-page__weakness-status-chip--mid {
+  color: var(--weakness-mastery-mid);
+}
+
+.course-page__weakness-status-chip--high {
+  color: var(--weakness-mastery-high);
+}
+
+.course-page__weakness-chart-panel {
+  margin-bottom: 1.25rem;
+  padding: 1rem 1.15rem;
+  background: var(--surface-elevated);
+  border: var(--border-hairline);
+  border-radius: 12px;
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--text-primary) 6%, transparent);
+}
+
+.course-page__weakness-chart-explainer {
+  margin: 0 0 0.85rem;
+  font-size: 0.875rem;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.course-page__weakness-chart-scroll {
+  overflow-x: auto;
+  padding-bottom: 0.35rem;
+}
+
+.course-page__weakness-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.85rem;
+  min-width: min-content;
+  min-height: 11rem;
+  padding: 0.35rem 0.15rem 0;
+}
+
+.course-page__weakness-chart-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.45rem;
+  flex: 0 0 4.5rem;
+  min-width: 4.5rem;
+}
+
+.course-page__weakness-chart-bar-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  width: 100%;
+}
+
+.course-page__weakness-chart-bar-track {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  width: 2.25rem;
+  height: 8.5rem;
+  border-radius: 8px 8px 4px 4px;
+  background: var(--weakness-bar-track);
+  overflow: hidden;
+}
+
+.course-page__weakness-chart-bar-fill {
+  display: block;
+  width: 100%;
+  min-height: 2px;
+  border-radius: inherit;
+  transition: height 0.25s var(--ease-standard);
+  background: var(--weakness-mastery-mid);
+}
+
+.course-page__weakness-chart-bar-fill--low {
+  background: var(--weakness-mastery-low);
+}
+
+.course-page__weakness-chart-bar-fill--mid {
+  background: var(--weakness-mastery-mid);
+}
+
+.course-page__weakness-chart-bar-fill--high {
+  background: var(--weakness-mastery-high);
+}
+
+.course-page__weakness-chart-score {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+.course-page__weakness-chart-label {
+  max-width: 100%;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.25;
+  text-align: center;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.course-page__weakness-chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem 1rem;
+  margin: 0.85rem 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+
+.course-page__weakness-chart-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.course-page__weakness-chart-legend-swatch {
+  width: 0.75rem;
+  height: 0.75rem;
+  border-radius: 3px;
+  flex-shrink: 0;
 }
 
 .course-page__weakness-rows {

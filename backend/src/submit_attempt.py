@@ -22,7 +22,7 @@ USER_PROGRESS_TABLE = os.environ["USER_PROGRESS_TABLE"]
 QUESTIONS_SET_INDEX = os.environ.get("QUESTIONS_SET_INDEX", "SetIdIndex")
 
 _ALLOWED_DIFFICULTIES = {"Easy", "Medium", "Hard"}
-_FALLBACK_TOPIC = "General"
+_FALLBACK_TOPIC = "Uncategorized"
 
 _dynamodb = boto3.resource("dynamodb")
 _courses_table = _dynamodb.Table(COURSES_TABLE)

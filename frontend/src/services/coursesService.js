@@ -96,11 +96,12 @@ export async function getCourseProgress(courseId, idToken) {
     },
   )
 
-  const payload = response?.data
-  if (payload?.matrix && typeof payload.matrix === 'object') {
-    return payload.matrix
+  const payload = response?.data ?? {}
+  return {
+    course_id: payload.course_id ?? courseId,
+    matrix: payload?.matrix && typeof payload.matrix === 'object' ? payload.matrix : {},
+    topics: Array.isArray(payload?.topics) ? payload.topics : null,
   }
-  return {}
 }
 
 export async function getCourseAttempts(courseId, idToken) {
