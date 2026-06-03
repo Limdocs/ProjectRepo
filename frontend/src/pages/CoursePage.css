@@ -828,6 +828,32 @@
   font-weight: 700;
 }
 
+.course-page__set-meta-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.45rem;
+}
+
+.course-page__set-meta-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.35;
+  background: var(--surface-page);
+  border: var(--border-hairline);
+  color: var(--text-secondary);
+}
+
+.course-page__set-meta-badge--language {
+  color: var(--accent-primary, #6366f1);
+  background: color-mix(in srgb, var(--accent-primary, #6366f1) 10%, transparent);
+  border-color: color-mix(in srgb, var(--accent-primary, #6366f1) 22%, transparent);
+}
+
 .course-page__set-card-meta {
   margin: 0.35rem 0 0;
   color: var(--text-secondary);
@@ -1251,6 +1277,61 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+.course-page__modal--quiz-generate {
+  width: min(440px, 100%);
+}
+
+.course-page__quiz-generate-field {
+  margin: 0 0 1rem;
+  padding: 0;
+  border: none;
+}
+
+.course-page__quiz-generate-legend {
+  margin: 0 0 0.5rem;
+  padding: 0;
+  color: var(--text-primary);
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.course-page__quiz-generate-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.course-page__quiz-generate-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.4rem 0.7rem;
+  border-radius: 999px;
+  border: var(--border-hairline);
+  background: var(--surface-page);
+  color: var(--text-primary);
+  font-size: 0.86rem;
+  cursor: pointer;
+  transition:
+    border-color 0.18s var(--ease-standard),
+    background-color 0.18s var(--ease-standard);
+}
+
+.course-page__quiz-generate-option:has(input:checked) {
+  border-color: var(--accent-primary, #6366f1);
+  background: color-mix(in srgb, var(--accent-primary, #6366f1) 12%, transparent);
+  color: var(--accent-primary, #6366f1);
+  font-weight: 600;
+}
+
+.course-page__quiz-generate-option input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  pointer-events: none;
 }
 
 .course-page__modal-title {

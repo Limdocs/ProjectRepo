@@ -31,6 +31,7 @@ const QUIZ_ELIGIBLE_STATUSES = new Set(['READY', 'FAILED'])
 const DOCUMENT_POLL_INTERVAL_MS = 7000
 const QUIZ_POLL_INTERVAL_MS = 4000
 const QUIZ_POLL_TIMEOUT_MS = 5 * 60 * 1000
+const QUIZ_GENERATE_COUNT_OPTIONS = [5, 10, 15, 20]
 
 function sleep(ms) {
   return new Promise((resolve) => {
@@ -145,6 +146,36 @@ function resolveQuestionSetLabel(setId, questionSets) {
   return match?.title ?? match?.name ?? match?.set_name ?? setId ?? '—'
 }
 
+function resolveQuizLanguage(setItem) {
+  const raw = setItem?.quiz_language ?? setItem?.quizLanguage ?? 'he'
+  return String(raw).toLowerCase() === 'en' ? 'en' : 'he'
+}
+
+function getOptionLabel(index, quizLanguage) {
+  const hebrewLabels = ['א', 'ב', 'ג', 'ד']
+  const englishLabels = ['A', 'B', 'C', 'D']
+  return quizLanguage === 'en'
+    ? englishLabels[index] ?? String.fromCharCode(65 + index)
+    : hebrewLabels[index] ?? String(index + 1)
+}
+
+function resolveQuizContentDir(setItem) {
+  return resolveQuizLanguage(setItem) === 'en' ? 'ltr' : 'rtl'
+}
+
+function resolveSetQuestionCount(setItem) {
+  const actual = Number(setItem?.question_count ?? setItem?.questionCount ?? 0)
+  if (actual > 0) return actual
+  const requested = Number(
+    setItem?.requested_question_count ?? setItem?.requestedQuestionCount ?? 0,
+  )
+  return requested > 0 ? requested : 0
+}
+
+function quizLanguageBadgeLabel(quizLang, labels) {
+  return quizLang === 'en' ? labels.quizLanguageBadgeEn : labels.quizLanguageBadgeHe
+}
+
 function formatTimeSpent(seconds, labels, txFn) {
   if (seconds == null || seconds < 0) return '—'
   const mins = Math.floor(seconds / 60)
@@ -239,6 +270,7 @@ function QuestionSetPreviewCard({
   setItem,
   labels,
   lang,
+  txFn,
   formatDocumentDateFn,
   formatDifficultySummaryFn,
   onStartAttempt,
@@ -248,6 +280,8 @@ function QuestionSetPreviewCard({
   deleteAriaLabel,
 }) {
   const title = setItem.name || setItem.set_name || labels.questionSetUntitled
+  const quizLang = resolveQuizLanguage(setItem)
+  const questionCount = resolveSetQuestionCount(setItem)
 
   return (
     <article className="course-page__set-card course-page__set-preview">
@@ -273,6 +307,14 @@ function QuestionSetPreviewCard({
       </div>
       <div className="course-page__set-preview-body">
         <p className="course-page__set-card-title">{title}</p>
+        <div className="course-page__set-meta-badges">
+          <span className="course-page__set-meta-badge course-page__set-meta-badge--language">
+            {quizLanguageBadgeLabel(quizLang, labels)}
+          </span>
+          <span className="course-page__set-meta-badge course-page__set-meta-badge--count">
+            {txFn(labels.questionSetMetaCount, { count: questionCount })}
+          </span>
+        </div>
         <p className="course-page__set-card-meta">{formatDocumentDateFn(setItem.created_at, lang)}</p>
         <p className="course-page__set-card-meta">{formatDifficultySummaryFn(setItem)}</p>
         {Array.isArray(setItem.source_document_names) && setItem.source_document_names.length > 0 ? (
@@ -297,6 +339,7 @@ function QuestionReviewList({
   questions,
   practiceAnswers,
   questionMode,
+  quizLanguage,
   labels,
   onAnswerSelect,
   isSubmittingAttempt,
@@ -346,7 +389,7 @@ function QuestionReviewList({
                         }}
                         disabled={!isPractice}
                       >
-                        {String.fromCharCode(65 + optIndex)}. {opt}
+                        {getOptionLabel(optIndex, quizLanguage)}. {opt}
                       </button>
                     </li>
                   )
@@ -429,6 +472,11 @@ export default function CoursePage() {
   const [selectionMode, setSelectionMode] = useState(false)
   const [selectedDocIds, setSelectedDocIds] = useState([])
   const [isGeneratingQuiz, setIsGeneratingQuiz] = useState(false)
+  const [isQuizGenerateModalOpen, setIsQuizGenerateModalOpen] = useState(false)
+  const [quizGenerateQuestionCount, setQuizGenerateQuestionCount] = useState(5)
+  const [quizGenerateLanguage, setQuizGenerateLanguage] = useState('he')
+  const [quizModalQuestionCount, setQuizModalQuestionCount] = useState(5)
+  const [quizModalLanguage, setQuizModalLanguage] = useState('he')
   const [quizError, setQuizError] = useState(null)
   const [quizStartedNotice, setQuizStartedNotice] = useState(null)
   const [quizOverlayMessageIndex, setQuizOverlayMessageIndex] = useState(0)
@@ -746,6 +794,7 @@ export default function CoursePage() {
   const handleExitPastAttemptView = useCallback(() => {
     setViewingPastAttempt(null)
     setLoadingAttemptId(null)
+    setSelectedQuestionSet(null)
     setPracticeAnswers({})
     setSetQuestions([])
     setQuestionMode(null)
@@ -800,6 +849,7 @@ export default function CoursePage() {
           getAttemptAnswers(courseId, attemptId, idToken),
         ])
         const questions = Array.isArray(setPayload?.questions) ? setPayload.questions : []
+        setSelectedQuestionSet(setPayload?.set ?? null)
         setSetQuestions(questions)
         setPracticeAnswers(mapAttemptAnswersToPractice(questions, answers))
         setQuestionMode('results')
@@ -1069,6 +1119,20 @@ export default function CoursePage() {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [isDeleteModalOpen, deletingDocId, closeDeleteModal])
 
+  const closeQuizGenerateModal = useCallback(() => {
+    if (isGeneratingQuiz) return
+    setIsQuizGenerateModalOpen(false)
+  }, [isGeneratingQuiz])
+
+  useEffect(() => {
+    if (!isQuizGenerateModalOpen) return undefined
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape' && !isGeneratingQuiz) closeQuizGenerateModal()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [isQuizGenerateModalOpen, isGeneratingQuiz, closeQuizGenerateModal])
+
   useEffect(() => {
     if (!quizStartedNotice) return undefined
     const timer = window.setTimeout(() => {
@@ -1144,7 +1208,10 @@ export default function CoursePage() {
   const showDocEmpty = !showDocSkeleton && !documentsLoading && !documentsError && documents.length === 0
   const showQuestionSetsSkeleton = questionSetsLoading && questionSets.length === 0
   const inQuizSession = questionMode === 'practice' || questionMode === 'results'
-  const forceQuizRtl = inQuizSession || Boolean(viewingPastAttempt)
+  const quizContentDir =
+    inQuizSession || viewingPastAttempt
+      ? resolveQuizContentDir(selectedQuestionSet)
+      : undefined
   const showQuestionSetDetail = Boolean(
     selectedQuestionSet && (inQuizSession || setQuestionsLoading),
   )
@@ -1222,9 +1289,29 @@ export default function CoursePage() {
     )
   }
 
-  const handleGenerateQuiz = async () => {
+  const handleOpenQuizGenerateModal = () => {
+    if (selectedDocIds.length === 0 || isGeneratingQuiz) return
+    setQuizModalQuestionCount(quizGenerateQuestionCount)
+    setQuizModalLanguage(quizGenerateLanguage)
+    setIsQuizGenerateModalOpen(true)
+  }
+
+  const handleConfirmGenerateQuiz = async () => {
+    if (selectedDocIds.length === 0 || isGeneratingQuiz) return
+    const requestedQuestionCount = quizModalQuestionCount
+    const quizLanguage = quizModalLanguage
+    setQuizGenerateQuestionCount(requestedQuestionCount)
+    setQuizGenerateLanguage(quizLanguage)
+    setIsQuizGenerateModalOpen(false)
+    await handleGenerateQuiz({ requestedQuestionCount, quizLanguage })
+  }
+
+  const handleGenerateQuiz = async (options = {}) => {
     if (!courseId || selectedDocIds.length === 0 || isGeneratingQuiz) return
 
+    const requestedQuestionCount =
+      options.requestedQuestionCount ?? quizGenerateQuestionCount
+    const quizLanguage = options.quizLanguage ?? quizGenerateLanguage
     const pendingDocIds = [...selectedDocIds]
     setDocumentsError(null)
     setDocumentsNotice(null)
@@ -1237,7 +1324,10 @@ export default function CoursePage() {
       if (!idToken) {
         throw new Error(t.coursePage.uploadMissingSession)
       }
-      await generateQuiz(courseId, pendingDocIds, idToken)
+      await generateQuiz(courseId, pendingDocIds, idToken, {
+        requestedQuestionCount,
+        quizLanguage,
+      })
 
       const result = await waitForQuizCompletion(
         pendingDocIds,
@@ -1377,6 +1467,7 @@ export default function CoursePage() {
         handleExitPastAttemptView()
       }
       setAttemptPendingDelete(null)
+      await loadCourseProgress()
     } catch (err) {
       const apiMsg = err?.response?.data?.message
       setAttemptsError(
@@ -1573,7 +1664,7 @@ export default function CoursePage() {
                   <button
                     type="button"
                     className="course-page__quiz-error-retry"
-                    onClick={handleGenerateQuiz}
+                    onClick={handleOpenQuizGenerateModal}
                     disabled={isGeneratingQuiz || selectedDocIds.length === 0}
                   >
                     {t.coursePage.tryAgain}
@@ -1753,6 +1844,7 @@ export default function CoursePage() {
                               setItem={setItem}
                               labels={t.coursePage}
                               lang={lang}
+                              txFn={tx}
                               formatDocumentDateFn={formatDocumentDate}
                               formatDifficultySummaryFn={formatDifficultySummary}
                               isStarting={startingSetId === setId}
@@ -1773,7 +1865,7 @@ export default function CoursePage() {
                   ) : null}
                 </>
               ) : (
-                <div className="course-page__set-detail" dir={forceQuizRtl ? 'rtl' : undefined}>
+                <div className="course-page__set-detail" dir={quizContentDir}>
                   <div className="course-page__set-detail-top">
                     <button
                       type="button"
@@ -1797,6 +1889,7 @@ export default function CoursePage() {
                       questions={setQuestions}
                       practiceAnswers={practiceAnswers}
                       questionMode={questionMode}
+                      quizLanguage={resolveQuizLanguage(selectedQuestionSet)}
                       labels={t.coursePage}
                       onAnswerSelect={(qid, optIndex) => {
                         setPracticeAnswers((prev) => ({
@@ -1823,7 +1916,7 @@ export default function CoursePage() {
                 </h2>
               </div>
               {viewingPastAttempt ? (
-                <div className="course-page__past-attempt-detail" dir="rtl">
+                <div className="course-page__past-attempt-detail" dir={quizContentDir}>
                   <div className="course-page__set-detail-top">
                     <button
                       type="button"
@@ -1860,6 +1953,7 @@ export default function CoursePage() {
                       questions={setQuestions}
                       practiceAnswers={practiceAnswers}
                       questionMode="results"
+                      quizLanguage={resolveQuizLanguage(selectedQuestionSet)}
                       labels={t.coursePage}
                       onBack={handleExitPastAttemptView}
                       backLabel={t.coursePage.backToAttemptsHistory}
@@ -2528,11 +2622,111 @@ export default function CoursePage() {
           <button
             type="button"
             className="course-page__quiz-generate-btn"
-            onClick={handleGenerateQuiz}
+            onClick={handleOpenQuizGenerateModal}
             disabled={isGeneratingQuiz || selectedDocIds.length === 0}
           >
-            {isGeneratingQuiz ? t.coursePage.quizGenerating : t.coursePage.quizGenerate}
+            {t.coursePage.quizGenerate}
           </button>
+        </div>
+      ) : null}
+      {isQuizGenerateModalOpen ? (
+        <div
+          className="course-page__modal-backdrop"
+          role="presentation"
+          onClick={closeQuizGenerateModal}
+        >
+          <section
+            className="course-page__modal course-page__modal--quiz-generate"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="course-quiz-generate-modal-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id="course-quiz-generate-modal-title" className="course-page__modal-title">
+              {t.coursePage.quizGenerateModalTitle}
+            </h2>
+            <p className="course-page__modal-subtitle">{t.coursePage.quizGenerateModalSubtitle}</p>
+
+            <fieldset className="course-page__quiz-generate-field">
+              <legend className="course-page__quiz-generate-legend">
+                {t.coursePage.quizGenerateCountLabel}
+              </legend>
+              <div
+                className="course-page__quiz-generate-options"
+                role="radiogroup"
+                aria-label={t.coursePage.quizGenerateCountAria}
+              >
+                {QUIZ_GENERATE_COUNT_OPTIONS.map((count) => (
+                  <label key={count} className="course-page__quiz-generate-option">
+                    <input
+                      type="radio"
+                      name="quiz-generate-count"
+                      value={count}
+                      checked={quizModalQuestionCount === count}
+                      onChange={() => setQuizModalQuestionCount(count)}
+                      disabled={isGeneratingQuiz}
+                    />
+                    <span>{count}</span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+
+            <fieldset className="course-page__quiz-generate-field">
+              <legend className="course-page__quiz-generate-legend">
+                {t.coursePage.quizGenerateLanguageLabel}
+              </legend>
+              <div
+                className="course-page__quiz-generate-options"
+                role="radiogroup"
+                aria-label={t.coursePage.quizGenerateLanguageAria}
+              >
+                <label className="course-page__quiz-generate-option">
+                  <input
+                    type="radio"
+                    name="quiz-generate-language"
+                    value="he"
+                    checked={quizModalLanguage === 'he'}
+                    onChange={() => setQuizModalLanguage('he')}
+                    disabled={isGeneratingQuiz}
+                  />
+                  <span>{t.coursePage.quizLanguageOptionHe}</span>
+                </label>
+                <label className="course-page__quiz-generate-option">
+                  <input
+                    type="radio"
+                    name="quiz-generate-language"
+                    value="en"
+                    checked={quizModalLanguage === 'en'}
+                    onChange={() => setQuizModalLanguage('en')}
+                    disabled={isGeneratingQuiz}
+                  />
+                  <span>{t.coursePage.quizLanguageOptionEn}</span>
+                </label>
+              </div>
+            </fieldset>
+
+            <div className="course-page__modal-actions">
+              <button
+                type="button"
+                className="course-page__modal-cancel"
+                onClick={closeQuizGenerateModal}
+                disabled={isGeneratingQuiz}
+              >
+                {t.home.cancel}
+              </button>
+              <button
+                type="button"
+                className="course-page__modal-submit"
+                onClick={handleConfirmGenerateQuiz}
+                disabled={
+                  isGeneratingQuiz || selectedDocIds.length === 0
+                }
+              >
+                {t.coursePage.quizGenerate}
+              </button>
+            </div>
+          </section>
         </div>
       ) : null}
       {isGeneratingQuiz ? (

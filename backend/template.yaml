@@ -434,7 +434,7 @@ Resources:
       Runtime: python3.9
       Timeout: 30
       # LabRole must include dynamodb/s3 on courses, documents, question_sets,
-      # questions, attempts, attempt_answers (Query, DeleteItem, BatchWriteItem).
+      # questions, attempts, attempt_answers, user_progress (Query, DeleteItem, BatchWriteItem).
       Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/LabRole"
       Environment:
         Variables:
@@ -444,6 +444,7 @@ Resources:
           QUESTIONS_TABLE: !Ref QuestionsTable
           ATTEMPTS_TABLE: !Ref AttemptsTable
           ATTEMPT_ANSWERS_TABLE: !Ref AttemptAnswersTable
+          USER_PROGRESS_TABLE: !Ref UserProgressTable
           UPLOAD_BUCKET: !Ref RawUploadsBucket
           PROCESSED_BUCKET: !Ref ProcessedOutputsBucket
           INDEX_NAME: CourseIdIndex
@@ -657,13 +658,17 @@ Resources:
       CodeUri: src/
       Handler: delete_attempt.lambda_handler
       Runtime: python3.9
-      # LabRole must include dynamodb:Query, DeleteItem, BatchWriteItem on attempts and attempt_answers.
+      # LabRole must include dynamodb:Query, GetItem, UpdateItem, DeleteItem, BatchWriteItem
+      # on attempts, attempt_answers, user_progress, and questions (SetIdIndex).
       Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/LabRole"
       Environment:
         Variables:
           COURSES_TABLE: !Ref LimdocsCoursesTable
           ATTEMPTS_TABLE: !Ref AttemptsTable
           ATTEMPT_ANSWERS_TABLE: !Ref AttemptAnswersTable
+          USER_PROGRESS_TABLE: !Ref UserProgressTable
+          QUESTIONS_TABLE: !Ref QuestionsTable
+          QUESTIONS_SET_INDEX: SetIdIndex
       Events:
         ApiEvent:
           Type: Api

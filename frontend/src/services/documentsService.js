@@ -127,9 +127,10 @@ export async function uploadFileToS3(uploadUrl, file, fileType) {
  * @param {string} courseId
  * @param {string[]} documentIds
  * @param {string} idToken Cognito ID token (JWT)
+ * @param {{ requestedQuestionCount?: number, quizLanguage?: string }} [options]
  * @returns {Promise<Record<string, unknown>>}
  */
-export async function generateQuiz(courseId, documentIds, idToken) {
+export async function generateQuiz(courseId, documentIds, idToken, options = {}) {
   if (!apiBaseUrl) {
     throw new Error('API is not configured. Set VITE_API_URL.')
   }
@@ -143,9 +144,18 @@ export async function generateQuiz(courseId, documentIds, idToken) {
     throw new Error('Missing idToken.')
   }
 
+  const { requestedQuestionCount, quizLanguage } = options
+  const body = { documentIds }
+  if (requestedQuestionCount != null) {
+    body.requested_question_count = requestedQuestionCount
+  }
+  if (quizLanguage != null) {
+    body.quiz_language = quizLanguage
+  }
+
   const response = await axios.post(
     `${apiBaseUrl}/courses/${encodeURIComponent(courseId)}/generate-quiz`,
-    { documentIds },
+    body,
     {
       headers: {
         Authorization: `Bearer ${idToken}`,

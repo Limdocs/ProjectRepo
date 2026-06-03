@@ -162,6 +162,9 @@ def _list_sets(course_id):
                 "set_name": _question_set_name(item),
                 "created_at": item.get("created_at"),
                 "question_count": _safe_int(item.get("question_count", 0)),
+                "quiz_language": item.get("quiz_language") or "he",
+                "requested_question_count": _safe_int(item.get("requested_question_count"))
+                or _safe_int(item.get("question_count", 0)),
                 "difficulty_breakdown": _normalize_difficulty_breakdown(
                     item.get("difficulty_breakdown")
                 ),
@@ -190,6 +193,11 @@ def _get_set_details(course_id, set_id):
                 "created_at": set_item.get("created_at"),
                 "course_id": set_item.get("course_id"),
                 "question_count": _safe_int(set_item.get("question_count", 0)),
+                "quiz_language": set_item.get("quiz_language") or "he",
+                "requested_question_count": _safe_int(
+                    set_item.get("requested_question_count")
+                )
+                or _safe_int(set_item.get("question_count", 0)),
                 "difficulty_breakdown": _normalize_difficulty_breakdown(
                     set_item.get("difficulty_breakdown")
                 ),

@@ -11,6 +11,7 @@ QUESTION_SETS_TABLE = os.environ["QUESTION_SETS_TABLE"]
 QUESTIONS_TABLE = os.environ["QUESTIONS_TABLE"]
 ATTEMPTS_TABLE = os.environ["ATTEMPTS_TABLE"]
 ATTEMPT_ANSWERS_TABLE = os.environ["ATTEMPT_ANSWERS_TABLE"]
+USER_PROGRESS_TABLE = os.environ["USER_PROGRESS_TABLE"]
 UPLOAD_BUCKET = os.environ["UPLOAD_BUCKET"]
 PROCESSED_BUCKET = os.environ["PROCESSED_BUCKET"]
 INDEX_NAME = os.environ["INDEX_NAME"]
@@ -24,6 +25,7 @@ _question_sets_table = _dynamodb.Table(QUESTION_SETS_TABLE)
 _questions_table = _dynamodb.Table(QUESTIONS_TABLE)
 _attempts_table = _dynamodb.Table(ATTEMPTS_TABLE)
 _attempt_answers_table = _dynamodb.Table(ATTEMPT_ANSWERS_TABLE)
+_user_progress_table = _dynamodb.Table(USER_PROGRESS_TABLE)
 _s3 = boto3.client("s3")
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -232,6 +234,8 @@ def lambda_handler(event, context):
         for attempt_item in attempts:
             _delete_attempt_row(sub, attempt_item)
             deleted_attempts += 1
+
+        _user_progress_table.delete_item(Key={"user_name": sub, "course_id": course_id})
 
         _courses_table.delete_item(Key={"course_id": course_id})
         return _response(

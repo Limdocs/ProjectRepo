@@ -28,6 +28,9 @@ COURSES_TABLE = os.environ["COURSES_TABLE"]
 PROCESSED_BUCKET = os.environ["PROCESSED_BUCKET"]
 
 _ALLOWED_DIFFICULTIES = {"Easy", "Medium", "Hard"}
+_ALLOWED_REQUESTED_QUESTION_COUNTS = {5, 10, 15, 20}
+_ALLOWED_QUIZ_LANGUAGES = {"he", "en"}
+_SHORT_SOURCE_HINT_THRESHOLD = 2000
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -42,11 +45,28 @@ _courses_table = _dynamodb.Table(COURSES_TABLE)
 
 _CORS_ALLOW_HEADERS = "Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token"
 
-def _build_system_prompt(allowed_topic_names):
-    allowed_json = json.dumps(allowed_topic_names, ensure_ascii=False)
+def _language_instruction_block(quiz_language):
+    if quiz_language == "en":
+        return (
+            "LANGUAGE (STRICT):\n"
+            "- Write every question, all four options, every explanation, and the answer "
+            "string in English.\n"
+        )
     return (
-        "You are an expert academic assistant. Generate exactly 5 high-quality "
-        "multiple-choice questions in Hebrew based on the provided text.\n\n"
+        "LANGUAGE (STRICT):\n"
+        "- Write every question, all four options, every explanation, and the answer "
+        "string in Hebrew.\n"
+    )
+
+
+def _build_system_prompt(allowed_topic_names, requested_question_count, quiz_language):
+    allowed_json = json.dumps(allowed_topic_names, ensure_ascii=False)
+    language_block = _language_instruction_block(quiz_language)
+    return (
+        "You are an expert academic assistant. Generate exactly "
+        f"{requested_question_count} high-quality multiple-choice questions based on "
+        "the provided text.\n\n"
+        f"{language_block}\n"
         "TOPIC CONSTRAINT (STRICT — NO EXCEPTIONS):\n"
         f"The ONLY allowed topic names are: {allowed_json}.\n"
         "- You are STRICTLY FORBIDDEN from inventing new topic names, translating "
@@ -56,6 +76,21 @@ def _build_system_prompt(allowed_topic_names):
         '- Do not use Hebrew topic names in the "topics" field — English names only.\n'
         "- Choose topics that best reflect the question content; a question may have "
         "multiple topics if appropriate.\n\n"
+        "SOURCE FIDELITY (STRICT):\n"
+        "- Every question, all four options, and every explanation must be grounded ONLY "
+        "in the provided source text.\n"
+        "- Do NOT invent facts, names, dates, definitions, or scenarios not supported by "
+        "the source.\n"
+        f"- You MUST return exactly {requested_question_count} questions.\n"
+        "- If the source material is limited or thin relative to the requested count:\n"
+        "  - Still return exactly the requested number of questions.\n"
+        "  - Prefer rephrasing, combining, comparing, and testing understanding of the "
+        "same concepts rather than inventing new content.\n"
+        "  - Vary angle and difficulty on the same facts; use cross-document synthesis "
+        "when multiple documents are present.\n"
+        "  - Do NOT fill gaps with generic or plausible-sounding but unsupported content.\n"
+        "- Explanations must reflect reasoning traceable to the source (without fabricating "
+        "citations).\n\n"
         "Difficulty: assign Easy, Medium, or Hard based on academic depth.\n"
         "Cross-document synthesis: ensure at least 1–2 questions synthesize or compare "
         "information across multiple provided documents when multiple documents are present.\n\n"
@@ -67,7 +102,7 @@ def _build_system_prompt(allowed_topic_names):
     )
 
 
-def _build_question_response_schema(allowed_topic_names):
+def _build_question_response_schema(allowed_topic_names, requested_question_count):
     question_item_schema = {
         "type": "object",
         "additionalProperties": False,
@@ -113,6 +148,8 @@ def _build_question_response_schema(allowed_topic_names):
                 "questions": {
                     "type": "array",
                     "items": question_item_schema,
+                    "minItems": requested_question_count,
+                    "maxItems": requested_question_count,
                 },
             },
         },
@@ -307,10 +344,60 @@ def _parse_api_request(event):
         return None, _response(400, {"message": "Field 'documentIds' must contain non-empty strings"})
 
     normalized_document_ids = [doc_id.strip() for doc_id in document_ids]
+
+    has_requested_count = "requested_question_count" in body
+    has_quiz_language = "quiz_language" in body
+    raw_requested_count = body.get("requested_question_count")
+    raw_quiz_language = body.get("quiz_language")
+
+    if has_requested_count or has_quiz_language:
+        if not has_requested_count or not has_quiz_language:
+            return None, _response(
+                400,
+                {
+                    "message": (
+                        "Fields 'requested_question_count' and 'quiz_language' must "
+                        "both be provided when either is present"
+                    )
+                },
+            )
+        if not isinstance(raw_requested_count, int) or isinstance(raw_requested_count, bool):
+            return None, _response(
+                400,
+                {"message": "Field 'requested_question_count' must be an integer"},
+            )
+        if raw_requested_count not in _ALLOWED_REQUESTED_QUESTION_COUNTS:
+            return None, _response(
+                400,
+                {
+                    "message": (
+                        "Field 'requested_question_count' must be one of: "
+                        "5, 10, 15, 20"
+                    )
+                },
+            )
+        if not isinstance(raw_quiz_language, str) or not raw_quiz_language.strip():
+            return None, _response(
+                400,
+                {"message": "Field 'quiz_language' must be a non-empty string"},
+            )
+        quiz_language = raw_quiz_language.strip().lower()
+        if quiz_language not in _ALLOWED_QUIZ_LANGUAGES:
+            return None, _response(
+                400,
+                {"message": "Field 'quiz_language' must be 'he' or 'en'"},
+            )
+        requested_question_count = raw_requested_count
+    else:
+        requested_question_count = 5
+        quiz_language = "he"
+
     return {
         "course_id": course_id,
         "document_ids": normalized_document_ids,
         "requested_by": claims["sub"],
+        "requested_question_count": requested_question_count,
+        "quiz_language": quiz_language,
     }, None
 
 
@@ -445,7 +532,13 @@ def _default_set_name(created_at):
     return f"Quiz from {date_label}"
 
 
-def _generate_questions_worker(course_id, document_ids, correlation_id):
+def _generate_questions_worker(
+    course_id,
+    document_ids,
+    correlation_id,
+    requested_question_count,
+    quiz_language,
+):
     topic_lists = []
     source_texts = []
     empty_text_document_ids = []
@@ -496,19 +589,34 @@ def _generate_questions_worker(course_id, document_ids, correlation_id):
         budgets,
     )
 
+    user_content = input_text
+    if len(input_text) < _SHORT_SOURCE_HINT_THRESHOLD:
+        user_content = (
+            f"{input_text}\n\n"
+            "Note: source text is limited; prioritize faithful coverage of the "
+            "provided material over novelty."
+        )
+
     _, model_name = openai_config()
     client = get_openai_client()
     completion = client.chat.completions.create(
         model=model_name,
         messages=[
-            {"role": "system", "content": _build_system_prompt(allowed_en)},
-            {"role": "user", "content": input_text},
+            {
+                "role": "system",
+                "content": _build_system_prompt(
+                    allowed_en, requested_question_count, quiz_language
+                ),
+            },
+            {"role": "user", "content": user_content},
         ],
         temperature=0.2,
         timeout=60,
         response_format={
             "type": "json_schema",
-            "json_schema": _build_question_response_schema(allowed_en),
+            "json_schema": _build_question_response_schema(
+                allowed_en, requested_question_count
+            ),
         },
     )
     raw_response = completion.choices[0].message.content or ""
@@ -530,6 +638,11 @@ def _generate_questions_worker(course_id, document_ids, correlation_id):
         )
         raise ValueError("AI response contained no valid questions")
 
+    if len(valid_questions) != requested_question_count:
+        raise ValueError(
+            f"Expected {requested_question_count} valid questions, got {len(valid_questions)}"
+        )
+
     set_id = str(uuid4())
     created_at = datetime.now(timezone.utc).isoformat()
     question_count = len(valid_questions)
@@ -543,6 +656,8 @@ def _generate_questions_worker(course_id, document_ids, correlation_id):
             "name": default_set_name,
             "set_name": default_set_name,
             "question_count": question_count,
+            "quiz_language": quiz_language,
+            "requested_question_count": requested_question_count,
             "difficulty_breakdown": _difficulty_breakdown(valid_questions),
             "title": f"Combined Quiz - {len(document_ids)} Materials",
             "created_at": created_at,
@@ -591,6 +706,12 @@ def worker_handler(event, context):
     course_id = event.get("courseId")
     document_ids = event.get("documentIds") or []
     requested_by = event.get("requestedBy")
+    requested_question_count = event.get("requestedQuestionCount", 5)
+    quiz_language = (event.get("quizLanguage") or "he").strip().lower()
+    if requested_question_count not in _ALLOWED_REQUESTED_QUESTION_COUNTS:
+        requested_question_count = 5
+    if quiz_language not in _ALLOWED_QUIZ_LANGUAGES:
+        quiz_language = "he"
     logger.info(
         "cid=%s worker_start course_id=%s doc_count=%s",
         correlation_id,
@@ -608,7 +729,13 @@ def worker_handler(event, context):
             _mark_quiz_failed(document_ids, "Unauthorized", correlation_id)
             return {"ok": False}
     try:
-        _generate_questions_worker(course_id, document_ids, correlation_id)
+        _generate_questions_worker(
+            course_id,
+            document_ids,
+            correlation_id,
+            requested_question_count,
+            quiz_language,
+        )
     except Exception as exc:
         logger.exception("cid=%s worker_failed course_id=%s", correlation_id, course_id)
         _mark_quiz_failed(document_ids, str(exc)[:500], correlation_id)
@@ -655,6 +782,8 @@ def api_handler(event, context):
             "documentIds": document_ids,
             "requestedBy": requested_by,
             "apiRequestId": correlation_id,
+            "requestedQuestionCount": parsed["requested_question_count"],
+            "quizLanguage": parsed["quiz_language"],
         }
         try:
             logger.info("cid=%s invoking_worker", correlation_id)
