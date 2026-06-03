@@ -108,3 +108,29 @@ def compute_topic_scores(matrix):
 
     topics.sort(key=lambda item: (item["score"], item["topic"]))
     return topics
+
+
+def select_prioritized_weak_topics(matrix, canonical_lookup=None, limit=5):
+    """Return up to `limit` canonical English weak topics (weakest first)."""
+    scored = compute_topic_scores(matrix)
+    weak_topics = [item["topic"] for item in scored if item.get("status") == "weak"]
+    if not weak_topics:
+        return []
+
+    lookup = canonical_lookup or {}
+    result = []
+    seen = set()
+    for topic in weak_topics:
+        if lookup:
+            canonical = lookup.get(topic.casefold())
+            if not canonical:
+                continue
+        else:
+            canonical = topic
+        if canonical in seen:
+            continue
+        seen.add(canonical)
+        result.append(canonical)
+        if len(result) >= limit:
+            break
+    return result

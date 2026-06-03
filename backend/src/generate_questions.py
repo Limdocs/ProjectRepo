@@ -8,6 +8,7 @@ import boto3
 from botocore.exceptions import ClientError
 
 from course_access import require_course_owner
+from topic_scoring import compute_topic_scores, select_prioritized_weak_topics
 from openai_helpers import (
     FALLBACK_TOPICS,
     QUIZ_MAX_SOURCE_CHARS,
@@ -25,6 +26,7 @@ DOCUMENTS_TABLE = os.environ["DOCUMENTS_TABLE"]
 QUESTIONS_TABLE = os.environ["QUESTIONS_TABLE"]
 QUESTION_SETS_TABLE = os.environ["QUESTION_SETS_TABLE"]
 COURSES_TABLE = os.environ["COURSES_TABLE"]
+USER_PROGRESS_TABLE = os.environ.get("USER_PROGRESS_TABLE", "")
 PROCESSED_BUCKET = os.environ["PROCESSED_BUCKET"]
 
 _ALLOWED_DIFFICULTIES = {"Easy", "Medium", "Hard"}
@@ -59,9 +61,30 @@ def _language_instruction_block(quiz_language):
     )
 
 
-def _build_system_prompt(allowed_topic_names, requested_question_count, quiz_language):
+def _build_weak_topic_priority_block(prioritized_weak_topics):
+    topics_json = json.dumps(prioritized_weak_topics, ensure_ascii=False)
+    return (
+        "\n\nWEAK-TOPIC PRIORITY:\n"
+        f"The learner is weaker in these topics: {topics_json}.\n"
+        "- Target approximately 60–70% of questions on these topics when the source "
+        "material supports it.\n"
+        "- Remaining questions may cover other allowed topics from the selected documents.\n"
+        "- All questions must remain grounded ONLY in the provided source text.\n"
+        '- The "topics" field must still use exact allowed English names only.\n'
+    )
+
+
+def _build_system_prompt(
+    allowed_topic_names,
+    requested_question_count,
+    quiz_language,
+    prioritized_weak_topics=None,
+):
     allowed_json = json.dumps(allowed_topic_names, ensure_ascii=False)
     language_block = _language_instruction_block(quiz_language)
+    weak_block = ""
+    if prioritized_weak_topics:
+        weak_block = _build_weak_topic_priority_block(prioritized_weak_topics)
     return (
         "You are an expert academic assistant. Generate exactly "
         f"{requested_question_count} high-quality multiple-choice questions based on "
@@ -99,6 +122,7 @@ def _build_system_prompt(allowed_topic_names, requested_question_count, quiz_lan
         "question (string), options (array of exactly 4 strings), correct_index (integer 0–3),\n"
         "explanation (string), topics (array of strings from the allowed list only),\n"
         "difficulty (Easy|Medium|Hard), answer (string) — must equal options[correct_index].\n"
+        f"{weak_block}"
     )
 
 
@@ -392,12 +416,21 @@ def _parse_api_request(event):
         requested_question_count = 5
         quiz_language = "he"
 
+    raw_focus_weak = body.get("focus_weak_topics")
+    if raw_focus_weak is not None and not isinstance(raw_focus_weak, bool):
+        return None, _response(
+            400,
+            {"message": "Field 'focus_weak_topics' must be a boolean"},
+        )
+    focus_weak_topics = raw_focus_weak is True
+
     return {
         "course_id": course_id,
         "document_ids": normalized_document_ids,
         "requested_by": claims["sub"],
         "requested_question_count": requested_question_count,
         "quiz_language": quiz_language,
+        "focus_weak_topics": focus_weak_topics,
     }, None
 
 
@@ -532,12 +565,77 @@ def _default_set_name(created_at):
     return f"Quiz from {date_label}"
 
 
+def _extract_progress_matrix(item):
+    if not item:
+        return {}
+    matrix = item.get("matrix")
+    if matrix is None or not isinstance(matrix, dict):
+        return {}
+    return matrix
+
+
+def _empty_weak_focus_result():
+    return {
+        "prioritized_weak_topics": [],
+        "applied_focus_weak_topics": False,
+        "progress_found": False,
+        "weak_count_before_intersection": 0,
+        "weak_count_after_intersection": 0,
+    }
+
+
+def _resolve_weak_topic_focus(user_name, course_id, canonical_lookup, correlation_id):
+    result = _empty_weak_focus_result()
+    if not user_name or not USER_PROGRESS_TABLE:
+        return result
+    try:
+        progress_table = _dynamodb.Table(USER_PROGRESS_TABLE)
+        item_result = progress_table.get_item(
+            Key={"user_name": user_name, "course_id": course_id}
+        )
+        matrix = _extract_progress_matrix(item_result.get("Item"))
+        if not matrix:
+            return result
+        result["progress_found"] = True
+        scored = compute_topic_scores(matrix)
+        result["weak_count_before_intersection"] = sum(
+            1 for topic in scored if topic.get("status") == "weak"
+        )
+        prioritized = select_prioritized_weak_topics(
+            matrix, canonical_lookup=canonical_lookup, limit=5
+        )
+        result["prioritized_weak_topics"] = prioritized
+        result["weak_count_after_intersection"] = len(prioritized)
+        result["applied_focus_weak_topics"] = len(prioritized) > 0
+        return result
+    except Exception:
+        logger.warning(
+            "cid=%s weak_focus_resolve_failed course_id=%s",
+            correlation_id,
+            course_id,
+        )
+        return _empty_weak_focus_result()
+
+
+def _question_set_generation_metadata(applied_focus_weak_topics, prioritized_weak_topics):
+    metadata = {
+        "generation_mode": (
+            "WEAKNESS_FOCUSED" if applied_focus_weak_topics else "NORMAL"
+        ),
+    }
+    if applied_focus_weak_topics:
+        metadata["focused_topics"] = list(prioritized_weak_topics)
+    return metadata
+
+
 def _generate_questions_worker(
     course_id,
     document_ids,
     correlation_id,
     requested_question_count,
     quiz_language,
+    requested_by=None,
+    requested_focus_weak_topics=False,
 ):
     topic_lists = []
     source_texts = []
@@ -576,6 +674,32 @@ def _generate_questions_worker(
         len(allowed_en),
     )
 
+    prioritized_weak_topics = []
+    applied_focus_weak_topics = False
+    weak_focus_result = _empty_weak_focus_result()
+    if requested_focus_weak_topics and requested_by:
+        weak_focus_result = _resolve_weak_topic_focus(
+            requested_by, course_id, canonical_lookup, correlation_id
+        )
+        prioritized_weak_topics = weak_focus_result["prioritized_weak_topics"]
+        applied_focus_weak_topics = weak_focus_result["applied_focus_weak_topics"]
+    logger.info(
+        "cid=%s weak_focus_requested=%s progress_found=%s "
+        "weak_before_intersection=%s weak_after_intersection=%s applied=%s",
+        correlation_id,
+        requested_focus_weak_topics,
+        weak_focus_result["progress_found"],
+        weak_focus_result["weak_count_before_intersection"],
+        weak_focus_result["weak_count_after_intersection"],
+        applied_focus_weak_topics,
+    )
+    if applied_focus_weak_topics:
+        logger.info(
+            "cid=%s prioritized_weak_topics=%s",
+            correlation_id,
+            prioritized_weak_topics,
+        )
+
     if empty_text_document_ids:
         logger.warning("WARNING: Extracted text is empty for documents: %s", empty_text_document_ids)
 
@@ -605,7 +729,12 @@ def _generate_questions_worker(
             {
                 "role": "system",
                 "content": _build_system_prompt(
-                    allowed_en, requested_question_count, quiz_language
+                    allowed_en,
+                    requested_question_count,
+                    quiz_language,
+                    prioritized_weak_topics=(
+                        prioritized_weak_topics if applied_focus_weak_topics else None
+                    ),
                 ),
             },
             {"role": "user", "content": user_content},
@@ -647,22 +776,24 @@ def _generate_questions_worker(
     created_at = datetime.now(timezone.utc).isoformat()
     question_count = len(valid_questions)
     default_set_name = _default_set_name(created_at)
-    _question_sets_table.put_item(
-        Item={
-            "set_id": set_id,
-            "document_ids": document_ids,
-            "source_document_names": source_document_names,
-            "course_id": course_id,
-            "name": default_set_name,
-            "set_name": default_set_name,
-            "question_count": question_count,
-            "quiz_language": quiz_language,
-            "requested_question_count": requested_question_count,
-            "difficulty_breakdown": _difficulty_breakdown(valid_questions),
-            "title": f"Combined Quiz - {len(document_ids)} Materials",
-            "created_at": created_at,
-        }
-    )
+    set_item = {
+        "set_id": set_id,
+        "document_ids": document_ids,
+        "source_document_names": source_document_names,
+        "course_id": course_id,
+        "name": default_set_name,
+        "set_name": default_set_name,
+        "question_count": question_count,
+        "quiz_language": quiz_language,
+        "requested_question_count": requested_question_count,
+        "difficulty_breakdown": _difficulty_breakdown(valid_questions),
+        "title": f"Combined Quiz - {len(document_ids)} Materials",
+        "created_at": created_at,
+        **_question_set_generation_metadata(
+            applied_focus_weak_topics, prioritized_weak_topics
+        ),
+    }
+    _question_sets_table.put_item(Item=set_item)
 
     with _questions_table.batch_writer() as batch:
         for question in valid_questions:
@@ -708,6 +839,7 @@ def worker_handler(event, context):
     requested_by = event.get("requestedBy")
     requested_question_count = event.get("requestedQuestionCount", 5)
     quiz_language = (event.get("quizLanguage") or "he").strip().lower()
+    requested_focus_weak_topics = bool(event.get("focusWeakTopics"))
     if requested_question_count not in _ALLOWED_REQUESTED_QUESTION_COUNTS:
         requested_question_count = 5
     if quiz_language not in _ALLOWED_QUIZ_LANGUAGES:
@@ -735,6 +867,8 @@ def worker_handler(event, context):
             correlation_id,
             requested_question_count,
             quiz_language,
+            requested_by=requested_by,
+            requested_focus_weak_topics=requested_focus_weak_topics,
         )
     except Exception as exc:
         logger.exception("cid=%s worker_failed course_id=%s", correlation_id, course_id)
@@ -784,6 +918,7 @@ def api_handler(event, context):
             "apiRequestId": correlation_id,
             "requestedQuestionCount": parsed["requested_question_count"],
             "quizLanguage": parsed["quiz_language"],
+            "focusWeakTopics": parsed["focus_weak_topics"],
         }
         try:
             logger.info("cid=%s invoking_worker", correlation_id)

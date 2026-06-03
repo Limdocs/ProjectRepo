@@ -127,7 +127,7 @@ export async function uploadFileToS3(uploadUrl, file, fileType) {
  * @param {string} courseId
  * @param {string[]} documentIds
  * @param {string} idToken Cognito ID token (JWT)
- * @param {{ requestedQuestionCount?: number, quizLanguage?: string }} [options]
+ * @param {{ requestedQuestionCount?: number, quizLanguage?: string, focusWeakTopics?: boolean }} [options]
  * @returns {Promise<Record<string, unknown>>}
  */
 export async function generateQuiz(courseId, documentIds, idToken, options = {}) {
@@ -144,13 +144,16 @@ export async function generateQuiz(courseId, documentIds, idToken, options = {})
     throw new Error('Missing idToken.')
   }
 
-  const { requestedQuestionCount, quizLanguage } = options
+  const { requestedQuestionCount, quizLanguage, focusWeakTopics } = options
   const body = { documentIds }
   if (requestedQuestionCount != null) {
     body.requested_question_count = requestedQuestionCount
   }
   if (quizLanguage != null) {
     body.quiz_language = quizLanguage
+  }
+  if (focusWeakTopics === true) {
+    body.focus_weak_topics = true
   }
 
   const response = await axios.post(

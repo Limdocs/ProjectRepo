@@ -4,7 +4,8 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from topic_scoring import compute_topic_scores
+from openai_helpers import build_canonical_topic_lookup
+from topic_scoring import compute_topic_scores, select_prioritized_weak_topics
 
 
 class TopicScoringTests(unittest.TestCase):
@@ -92,6 +93,49 @@ class TopicScoringTests(unittest.TestCase):
         self.assertEqual(breakdown["easy"]["score"], 50)
         self.assertIsNone(breakdown["medium"]["score"])
         self.assertIsNone(breakdown["hard"]["score"])
+
+    def test_select_weak_topics_in_score_order_capped_at_five(self):
+        matrix = {
+            "Alpha": {"Hard": {"correct": 0, "total": 2}},
+            "Beta": {"Hard": {"correct": 0, "total": 3}},
+            "Gamma": {"Easy": {"correct": 0, "total": 1}},
+            "Delta": {"Easy": {"correct": 0, "total": 1}},
+            "Epsilon": {"Easy": {"correct": 0, "total": 1}},
+            "Zeta": {"Easy": {"correct": 0, "total": 1}},
+            "Eta": {"Easy": {"correct": 0, "total": 1}},
+        }
+        weak = select_prioritized_weak_topics(matrix)
+        self.assertEqual(len(weak), 5)
+        self.assertEqual(weak[0], "Alpha")
+
+    def test_select_weak_canonical_lookup_case_insensitive(self):
+        matrix = {"algorithms": {"Hard": {"correct": 0, "total": 2}}}
+        lookup = build_canonical_topic_lookup(["Algorithms", "Data Structures"])
+        weak = select_prioritized_weak_topics(matrix, canonical_lookup=lookup)
+        self.assertEqual(weak, ["Algorithms"])
+
+    def test_select_weak_excludes_topics_not_in_lookup(self):
+        matrix = {
+            "Orphan Topic": {"Hard": {"correct": 0, "total": 2}},
+            "Algorithms": {"Hard": {"correct": 0, "total": 2}},
+        }
+        lookup = build_canonical_topic_lookup(["Algorithms"])
+        weak = select_prioritized_weak_topics(matrix, canonical_lookup=lookup)
+        self.assertEqual(weak, ["Algorithms"])
+
+    def test_select_weak_empty_matrix(self):
+        self.assertEqual(select_prioritized_weak_topics({}), [])
+        self.assertEqual(select_prioritized_weak_topics(None), [])
+
+    def test_select_weak_no_weak_status(self):
+        matrix = {"Strong": {"Easy": {"correct": 10, "total": 10}}}
+        self.assertEqual(select_prioritized_weak_topics(matrix), [])
+
+    def test_select_weak_general_alias(self):
+        matrix = {"General": {"Hard": {"correct": 0, "total": 2}}}
+        lookup = build_canonical_topic_lookup(["Uncategorized"])
+        weak = select_prioritized_weak_topics(matrix, canonical_lookup=lookup)
+        self.assertEqual(weak, ["Uncategorized"])
 
 
 if __name__ == "__main__":

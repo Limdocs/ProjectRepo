@@ -468,6 +468,7 @@ Resources:
       Timeout: 300
       MemorySize: 512
       ReservedConcurrentExecutions: 2
+      # IAM check: LabRole must include dynamodb:GetItem on user_progress.
       Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/LabRole"
       Environment:
         Variables:
@@ -475,6 +476,7 @@ Resources:
           QUESTIONS_TABLE: !Ref QuestionsTable
           QUESTION_SETS_TABLE: !Ref QuestionSetsTable
           DOCUMENTS_TABLE: !Ref DocumentsTable
+          USER_PROGRESS_TABLE: !Ref UserProgressTable
           PROCESSED_BUCKET: !Ref ProcessedOutputsBucket
           OPENAI_API_KEY: !Ref OpenAIApiKey
           OPENAI_MODEL_NAME: "gpt-4.1-mini"

@@ -126,6 +126,10 @@ export const languageContent = {
       quizGenerateLanguageLabel: 'שפת הבוחן',
       quizGenerateCountAria: 'מספר שאלות בבוחן',
       quizGenerateLanguageAria: 'שפת תוכן הבוחן',
+      quizGenerateFocusWeakLabel: 'התמקד בנושאים החלשים שלי',
+      quizGenerateFocusWeakHelper:
+        'אם קיימים נושאים חלשים לפי ההתקדמות שלך, המערכת תעדיף לשלב מהם יותר שאלות.',
+      quizGenerateFocusWeakAria: 'התמקדות בנושאים חלשים לפי ההתקדמות שלך',
       quizLanguageOptionHe: 'עברית',
       quizLanguageOptionEn: 'אנגלית',
       quizLanguageBadgeHe: 'עברית',
@@ -384,6 +388,10 @@ export const languageContent = {
       quizGenerateLanguageLabel: 'Quiz language',
       quizGenerateCountAria: 'Number of questions in the quiz',
       quizGenerateLanguageAria: 'Quiz content language',
+      quizGenerateFocusWeakLabel: 'Focus on my weak topics',
+      quizGenerateFocusWeakHelper:
+        'If weak topics are available in your progress, the quiz will prioritize them.',
+      quizGenerateFocusWeakAria: 'Focus quiz on weak topics from your progress',
       quizLanguageOptionHe: 'Hebrew',
       quizLanguageOptionEn: 'English',
       quizLanguageBadgeHe: 'Hebrew',

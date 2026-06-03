@@ -475,8 +475,10 @@ export default function CoursePage() {
   const [isQuizGenerateModalOpen, setIsQuizGenerateModalOpen] = useState(false)
   const [quizGenerateQuestionCount, setQuizGenerateQuestionCount] = useState(5)
   const [quizGenerateLanguage, setQuizGenerateLanguage] = useState('he')
+  const [quizGenerateFocusWeakTopics, setQuizGenerateFocusWeakTopics] = useState(false)
   const [quizModalQuestionCount, setQuizModalQuestionCount] = useState(5)
   const [quizModalLanguage, setQuizModalLanguage] = useState('he')
+  const [quizModalFocusWeakTopics, setQuizModalFocusWeakTopics] = useState(false)
   const [quizError, setQuizError] = useState(null)
   const [quizStartedNotice, setQuizStartedNotice] = useState(null)
   const [quizOverlayMessageIndex, setQuizOverlayMessageIndex] = useState(0)
@@ -1293,6 +1295,7 @@ export default function CoursePage() {
     if (selectedDocIds.length === 0 || isGeneratingQuiz) return
     setQuizModalQuestionCount(quizGenerateQuestionCount)
     setQuizModalLanguage(quizGenerateLanguage)
+    setQuizModalFocusWeakTopics(quizGenerateFocusWeakTopics)
     setIsQuizGenerateModalOpen(true)
   }
 
@@ -1300,10 +1303,12 @@ export default function CoursePage() {
     if (selectedDocIds.length === 0 || isGeneratingQuiz) return
     const requestedQuestionCount = quizModalQuestionCount
     const quizLanguage = quizModalLanguage
+    const focusWeakTopics = quizModalFocusWeakTopics
     setQuizGenerateQuestionCount(requestedQuestionCount)
     setQuizGenerateLanguage(quizLanguage)
+    setQuizGenerateFocusWeakTopics(focusWeakTopics)
     setIsQuizGenerateModalOpen(false)
-    await handleGenerateQuiz({ requestedQuestionCount, quizLanguage })
+    await handleGenerateQuiz({ requestedQuestionCount, quizLanguage, focusWeakTopics })
   }
 
   const handleGenerateQuiz = async (options = {}) => {
@@ -1312,6 +1317,7 @@ export default function CoursePage() {
     const requestedQuestionCount =
       options.requestedQuestionCount ?? quizGenerateQuestionCount
     const quizLanguage = options.quizLanguage ?? quizGenerateLanguage
+    const focusWeakTopics = options.focusWeakTopics ?? quizGenerateFocusWeakTopics
     const pendingDocIds = [...selectedDocIds]
     setDocumentsError(null)
     setDocumentsNotice(null)
@@ -1327,6 +1333,7 @@ export default function CoursePage() {
       await generateQuiz(courseId, pendingDocIds, idToken, {
         requestedQuestionCount,
         quizLanguage,
+        focusWeakTopics,
       })
 
       const result = await waitForQuizCompletion(
@@ -2705,6 +2712,26 @@ export default function CoursePage() {
                 </label>
               </div>
             </fieldset>
+
+            <div className="course-page__quiz-generate-focus">
+              <label className="course-page__quiz-generate-focus-label">
+                <input
+                  type="checkbox"
+                  checked={quizModalFocusWeakTopics}
+                  onChange={(e) => setQuizModalFocusWeakTopics(e.target.checked)}
+                  disabled={isGeneratingQuiz}
+                  aria-label={t.coursePage.quizGenerateFocusWeakAria}
+                  aria-describedby="course-quiz-generate-focus-helper"
+                />
+                <span>{t.coursePage.quizGenerateFocusWeakLabel}</span>
+              </label>
+              <p
+                id="course-quiz-generate-focus-helper"
+                className="course-page__quiz-generate-focus-helper"
+              >
+                {t.coursePage.quizGenerateFocusWeakHelper}
+              </p>
+            </div>
 
             <div className="course-page__modal-actions">
               <button
