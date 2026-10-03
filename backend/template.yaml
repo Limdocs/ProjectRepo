@@ -561,6 +561,7 @@ Resources:
           PROCESSED_BUCKET: !Ref ProcessedOutputsBucket
           OPENAI_API_KEY: !Ref OpenAIApiKey
           OPENAI_MODEL_NAME: "gpt-4.1-mini"
+          QUIZ_INPUT_TOKEN_BUDGET: "120000"
 
   GenerateQuestionsWorkerAsyncConfig:
     Type: AWS::Lambda::EventInvokeConfig
@@ -633,6 +634,14 @@ Resources:
             RestApiId: !Ref LimdocsApi
             Path: /courses/{courseId}/question-sets/{setId}
             Method: delete
+        # Quiz-generation state for one request. Document status never reports
+        # generation progress, so the frontend polls the generation itself.
+        GetQuizGeneration:
+          Type: Api
+          Properties:
+            RestApiId: !Ref LimdocsApi
+            Path: /courses/{courseId}/quiz-generations/{generationId}
+            Method: get
 
   SubmitAttemptFunction:
     Type: AWS::Serverless::Function

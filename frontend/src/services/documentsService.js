@@ -184,6 +184,27 @@ export async function getQuestionSets(courseId, idToken) {
   return Array.isArray(response?.data?.sets) ? response.data.sets : []
 }
 
+/**
+ * State of one quiz-generation request. Generation health lives on the
+ * generation record, not on the source documents.
+ *
+ * @returns {Promise<{ generation_id: string, set_id?: string, generation_status: string, failure_code?: string }|null>}
+ */
+export async function getQuizGeneration(courseId, generationId, idToken) {
+  if (!apiBaseUrl) throw new Error('API is not configured. Set VITE_API_URL.')
+  if (!courseId) throw new Error('Missing courseId.')
+  if (!generationId) throw new Error('Missing generationId.')
+  if (!idToken) throw new Error('Missing idToken.')
+
+  const response = await axios.get(
+    `${apiBaseUrl}/courses/${encodeURIComponent(courseId)}/quiz-generations/${encodeURIComponent(generationId)}`,
+    {
+      headers: { Authorization: `Bearer ${idToken}` },
+    },
+  )
+  return response?.data?.generation ?? null
+}
+
 export async function getQuestionSetDetails(courseId, setId, idToken) {
   if (!apiBaseUrl) throw new Error('API is not configured. Set VITE_API_URL.')
   if (!courseId) throw new Error('Missing courseId.')

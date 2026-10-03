@@ -8,6 +8,7 @@ from botocore.exceptions import ClientError
 from boto3.dynamodb.conditions import Key
 
 from course_access import require_course_owner, resolve_course_access
+from generation_records import generation_set_id, generation_state
 
 QUESTION_SETS_TABLE = os.environ["QUESTION_SETS_TABLE"]
 QUESTIONS_TABLE = os.environ["QUESTIONS_TABLE"]
@@ -60,10 +61,34 @@ def _get_path_param(event, key):
     return (event.get("pathParameters") or {}).get(key)
 
 
+def _get_generation_status(course_id, generation_id):
+    """State of one quiz-generation attempt, independent of document status."""
+    row = _question_sets_table.get_item(
+        Key={"set_id": generation_set_id(generation_id)},
+        ConsistentRead=True,
+    ).get("Item") or {}
+    row_course_id = row.get("course_id") or row.get("generation_course_id")
+    if row.get("generation_id") != generation_id or row_course_id != course_id:
+        return _response(404, {"message": "Quiz generation not found"}, "GET,OPTIONS")
+
+    status, failure_code = generation_state(row)
+    generation = {
+        "generation_id": generation_id,
+        "set_id": row.get("set_id"),
+        "generation_status": status,
+    }
+    if failure_code:
+        generation["failure_code"] = failure_code
+    return _response(200, {"generation": generation}, "GET,OPTIONS")
+
+
 def _get_set_or_404(course_id, set_id):
     result = _question_sets_table.get_item(Key={"set_id": set_id})
     item = result.get("Item")
     if not item or item.get("course_id") != course_id:
+        return None
+    generation_status = item.get("generation_status")
+    if generation_status is not None and generation_status != "READY":
         return None
     return item
 
@@ -170,6 +195,7 @@ def _list_sets(course_id):
                 ),
                 "source_document_names": item.get("source_document_names", []),
                 "document_ids": item.get("document_ids", []),
+                "generation_id": item.get("generation_id"),
             }
         )
 
@@ -203,6 +229,7 @@ def _get_set_details(course_id, set_id):
                 ),
                 "source_document_names": set_item.get("source_document_names", []),
                 "document_ids": set_item.get("document_ids", []),
+                "generation_id": set_item.get("generation_id"),
             },
             "questions": questions,
         },
@@ -239,6 +266,7 @@ def _delete_set(course_id, set_id):
 def lambda_handler(event, _context):
     method = (event.get("httpMethod") or "").upper()
     set_id = _get_path_param(event, "setId")
+    generation_id = _get_path_param(event, "generationId")
     route_allow_methods = "GET,DELETE,OPTIONS" if set_id else "GET,OPTIONS"
 
     try:
@@ -262,6 +290,13 @@ def lambda_handler(event, _context):
                 return _delete_set(course_id, set_id)
             return _response(405, {"message": "Method not allowed"}, route_allow_methods)
 
+        if method == "GET" and generation_id:
+            gate = require_course_owner(_courses_table, course_id, user_sub)
+            if gate:
+                status, body = gate
+                return _response(status, body, route_allow_methods)
+            return _get_generation_status(course_id, generation_id)
+
         if method == "GET":
             _mode, payload = resolve_course_access(_courses_table, course_id, user_sub)
             if _mode is None:
@@ -274,9 +309,10 @@ def lambda_handler(event, _context):
         return _response(405, {"message": "Method not allowed"}, route_allow_methods)
     except Exception:
         logger.exception(
-            "get_questions error method=%s course_id=%s set_id=%s",
+            "get_questions error method=%s course_id=%s set_id=%s generation_id=%s",
             method,
             _get_path_param(event, "courseId"),
             set_id,
+            generation_id,
         )
         return _response(500, {"message": "Internal server error"}, route_allow_methods)

@@ -4,9 +4,6 @@ import re
 # Approved default; overridden by OPENAI_MODEL_NAME env
 DEFAULT_OPENAI_MODEL = "gpt-4.1-mini"
 
-# Quiz worker historical limit (generate_questions unchanged)
-QUIZ_MAX_SOURCE_CHARS = 12_000
-
 # Legacy + fallback topic pair (process + read APIs)
 FALLBACK_TOPICS = [{"he": "כללי", "en": "General"}]
 

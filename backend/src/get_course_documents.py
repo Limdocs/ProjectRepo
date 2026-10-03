@@ -5,6 +5,7 @@ import boto3
 from boto3.dynamodb.conditions import Key
 
 from course_access import ACCESS_OWNER, resolve_course_access
+from document_status import effective_processing_status
 from openai_helpers import ensure_document_topics
 
 DOCUMENTS_TABLE = os.environ["DOCUMENTS_TABLE"]
@@ -32,6 +33,12 @@ def _response(status_code, payload, allow_methods="GET,OPTIONS"):
         "headers": _cors_headers(allow_methods),
         "body": json.dumps(payload),
     }
+
+
+def _owner_document(item):
+    document = ensure_document_topics(dict(item))
+    document["processing_status"] = effective_processing_status(document)
+    return document
 
 
 def _sanitize_public_document(item):
@@ -72,7 +79,7 @@ def lambda_handler(event, context):
         )
         raw_items = query_result.get("Items", [])
         if mode == ACCESS_OWNER:
-            items = [ensure_document_topics(dict(item)) for item in raw_items]
+            items = [_owner_document(item) for item in raw_items]
         else:
             items = [_sanitize_public_document(item) for item in raw_items]
 

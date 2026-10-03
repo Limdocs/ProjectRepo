@@ -20,7 +20,7 @@ Limdocs is an adaptive learning platform for students: create course spaces, upl
 - **Create and manage courses** from the dashboard (private or public visibility stored on the course; owners can change visibility from the course page via `PATCH /courses/{courseId}/visibility`; **browse public courses** on the Home **Explore Courses** tab via `GET /courses/public`, which follows the `visibility_courses_index` GSI; foreign public cards show the creator username and open the course in read-only mode)
 - **Upload materials** via S3 pre-signed URLs (PDF, PNG, JPEG; **20 MB** max per file via `file_size_bytes`)
 - **Process documents** asynchronously: S3 `uploads/` trigger → Textract → bilingual sub-topic extraction (OpenAI) → `READY` with topic chips on the Materials tab
-- **Generate question sets** from one or more `READY` documents: async API + worker Lambdas, UI polling until documents leave `GENERATING`, optional **5/10/15/20** questions, **Hebrew or English** quiz language, and **weakness-focused** mode that prioritizes your weakest topics from `user_progress`
+- **Generate question sets** from one or more `READY` documents: async API + worker Lambdas, UI polling the current `generation_id` until that generation is `READY` or `FAILED`, optional **5/10/15/20** questions, **Hebrew or English** quiz language, and **weakness-focused** mode that prioritizes your weakest topics from `user_progress`
 - **Take quizzes**, submit attempts (graded server-side), and review correct answers with explanations
 - **Browse attempt history**, reopen past submissions in read-only review mode, and **delete** individual attempts (progress matrix deltas are reversed)
 - **View weakness analytics** on the course **Analyzed Weaknesses** tab: weighted topic scores (Easy/Medium/Hard), weak/medium/strong status bands, vertical score chart, and per-topic breakdown—fed by quiz submissions and served from `GET /courses/{courseId}/progress`
@@ -67,17 +67,18 @@ Course-scoped APIs use `course_access.resolve_course_access` (Cognito `sub` vs `
 
 ### Document processing lifecycle
 
-Typical `processing_status` values on a document:
+`documents.processing_status` is document ingestion/processing health only. Quiz generation is a separate state machine on the question-set generation record.
 
 | Status | Meaning |
 |--------|---------|
 | `UPLOADED` | Metadata recorded; file in S3 |
 | `PROCESSING` | Textract job in progress (idempotent claim from `UPLOADED`) |
 | `READY` | Text extracted, bilingual `topics` available, eligible for quiz generation |
-| `GENERATING` | Quiz worker holds a conditional claim while generating for this document |
-| `FAILED` / `ERROR` | Processing or generation failed (`failure_reason` when set) |
+| `FAILED` / `ERROR` | The document itself could not be processed (unsupported type, S3/Textract failure, unusable content). `failure_reason` when set. |
 
-The course page polls materials while any document is not in a terminal state (`READY`, `FAILED`, `ERROR`). Quiz generation can target documents in `READY` or `FAILED` (retry after failure).
+A quiz-generation request uses its own `generation_id`: `GENERATING` → `READY`, or `GENERATING` → `FAILED` (`failure_code`). That status never writes back to the source documents. A failed generation can be retried immediately on the same `READY` documents. Legacy rows that still store `GENERATING`, or `FAILED` with a quiz `failure_code`, are reported as `READY` on read when processed text exists.
+
+The course page polls materials while any document is not in a terminal processing state (`READY`, `FAILED`, `ERROR`). Quiz completion is determined from the current generation identity, not from document badges.
 
 ### Quiz generation modes
 

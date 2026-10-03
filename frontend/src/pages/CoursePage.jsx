@@ -22,15 +22,19 @@ import {
   getCourseDocuments,
   getQuestionSetDetails,
   getQuestionSets,
+  getQuizGeneration,
   MAX_UPLOAD_BYTES,
   getUploadUrl,
   uploadFileToS3,
 } from '../services/documentsService.js'
 import { resolveProgressTopics } from '../utils/topicScoring.js'
 import { normalizeCourseVisibility } from '../utils/courseVisibility.js'
+import { mapGenerationFailure, resolveQuizJobStatus } from '../utils/quizGeneration.js'
 
 const FINAL_PROCESSING_STATUSES = new Set(['READY', 'FAILED', 'ERROR'])
-const QUIZ_ELIGIBLE_STATUSES = new Set(['READY', 'FAILED'])
+// Document processing health only. A failed quiz generation leaves its source
+// documents READY, so they stay selectable for an immediate retry.
+const QUIZ_ELIGIBLE_STATUSES = new Set(['READY'])
 const DOCUMENT_POLL_INTERVAL_MS = 7000
 const QUIZ_POLL_INTERVAL_MS = 4000
 const QUIZ_POLL_TIMEOUT_MS = 5 * 60 * 1000
@@ -42,54 +46,26 @@ function sleep(ms) {
   })
 }
 
-function getQuizJobStatus(documents, pendingDocIds) {
-  const pending = new Set(pendingDocIds.map((id) => String(id)))
-  if (pending.size === 0) {
-    return { state: 'success' }
+async function waitForQuizCompletion(loadGeneration, loadQuestionSets, labels, generationId) {
+  if (!generationId) {
+    return { ok: false, message: labels.quizGenerationFailed }
   }
-
-  let anyGenerating = false
-  let anyReady = false
-
-  for (const doc of documents) {
-    const id = String(doc.document_id ?? doc.documentId ?? '')
-    if (!pending.has(id)) continue
-    const status = normalizeProcessingStatus(doc.processing_status ?? doc.processingStatus)
-    if (status === 'GENERATING') {
-      anyGenerating = true
-    } else if (status === 'FAILED' || status === 'ERROR') {
-      const reason = doc.failure_reason ?? doc.failureReason
-      return {
-        state: 'failed',
-        failureReason:
-          typeof reason === 'string' && reason.trim() ? reason.trim() : null,
-      }
-    } else if (status === 'READY') {
-      anyReady = true
-    }
-  }
-
-  if (!anyGenerating && anyReady) {
-    return { state: 'success' }
-  }
-  return { state: 'running' }
-}
-
-async function waitForQuizCompletion(pendingDocIds, loadDocuments, loadQuestionSets, labels) {
   const startedAt = Date.now()
   while (Date.now() - startedAt < QUIZ_POLL_TIMEOUT_MS) {
-    const docs = await loadDocuments({ silent: true })
-    await loadQuestionSets({ silent: true })
-    if (Array.isArray(docs)) {
-      const jobStatus = getQuizJobStatus(docs, pendingDocIds)
-      if (jobStatus.state === 'success') {
-        return { ok: true }
-      }
-      if (jobStatus.state === 'failed') {
-        return {
-          ok: false,
-          message: jobStatus.failureReason || labels.quizGenerationFailed,
-        }
+    const generation = await loadGeneration(generationId)
+    const sets = await loadQuestionSets({ silent: true })
+    const jobStatus = resolveQuizJobStatus({
+      generation,
+      questionSets: Array.isArray(sets) ? sets : [],
+      generationId,
+    })
+    if (jobStatus.state === 'success') {
+      return { ok: true }
+    }
+    if (jobStatus.state === 'failed') {
+      return {
+        ok: false,
+        message: mapGenerationFailure(jobStatus.failureCode, labels),
       }
     }
     await sleep(QUIZ_POLL_INTERVAL_MS)
@@ -102,7 +78,6 @@ function documentStatusLabel(status, labels) {
   const labelMap = {
     UPLOADED: labels.statusUploaded,
     PROCESSING: labels.statusProcessing,
-    GENERATING: labels.statusGenerating,
     READY: labels.statusReady,
     GENERATED: labels.statusGenerated,
     FAILED: labels.statusFailed,
@@ -1506,17 +1481,26 @@ export default function CoursePage() {
       if (!idToken) {
         throw new Error(t.coursePage.uploadMissingSession)
       }
-      await generateQuiz(courseId, pendingDocIds, idToken, {
+      const started = await generateQuiz(courseId, pendingDocIds, idToken, {
         requestedQuestionCount,
         quizLanguage,
         focusWeakTopics,
       })
 
+      const loadGeneration = async (generationId) => {
+        try {
+          return await getQuizGeneration(courseId, generationId, idToken)
+        } catch {
+          // A transient read failure is not a generation failure; keep polling.
+          return null
+        }
+      }
+
       const result = await waitForQuizCompletion(
-        pendingDocIds,
-        loadDocuments,
+        loadGeneration,
         loadQuestionSets,
         t.coursePage,
+        started?.generation_id,
       )
       if (!result.ok) {
         throw new Error(result.message || t.coursePage.quizGenerationFailed)
@@ -1531,8 +1515,11 @@ export default function CoursePage() {
       setActiveTab('questionSets')
     } catch (err) {
       let message = t.coursePage.quizGenerationFailed
+      const apiCode = err?.response?.data?.code
       const apiMsg = err?.response?.data?.message
-      if (typeof apiMsg === 'string' && apiMsg.trim()) {
+      if (typeof apiCode === 'string' && apiCode.trim()) {
+        message = mapGenerationFailure(apiCode.trim(), t.coursePage)
+      } else if (typeof apiMsg === 'string' && apiMsg.trim()) {
         message = apiMsg.trim()
       } else if (typeof err?.message === 'string' && err.message.includes('VITE_API_URL')) {
         message = t.coursePage.uploadApiNotConfigured
@@ -1962,9 +1949,6 @@ export default function CoursePage() {
                     const status = doc.processing_status ?? doc.processingStatus ?? ''
                     const normalizedStatus = normalizeProcessingStatus(status)
                     const isInteractive = QUIZ_ELIGIBLE_STATUSES.has(normalizedStatus)
-                    const hasGeneratedQuiz = Boolean(
-                      doc.has_generated_quiz ?? doc.hasGeneratedQuiz ?? false,
-                    )
                     const statusLabel = documentStatusLabel(status, t.coursePage)
                     const showStatusBadge =
                       normalizedStatus && normalizedStatus !== 'READY'

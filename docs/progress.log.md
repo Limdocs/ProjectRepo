@@ -214,3 +214,7 @@ This file lives at `docs/progress.log.md` and is used for project progress track
 ## 2026-09-30
 
 - Added isolated quiz content selection (full text for 1–3 documents, stratified 3/N sampling for 4+, per-document token budget with a vendored `o200k_base` blob) without calling it from quiz generation. `sam build --use-container` built a 24.2 MB unzipped worker package with tiktoken 0.11.0, regex, requests, and the cache file; `pytest tests` 172 passed, including the previous 116. | files: `backend/src/content_selection.py`, `backend/src/passage_sampling.py`, `backend/src/token_budget.py`, `backend/src/tiktoken_cache/`, `backend/src/requirements.txt`, `backend/build.ps1`, `backend/tests/test_content_selection.py`, `backend/tests/test_passage_sampling.py`, `backend/tests/test_token_budget.py`, `docs/quiz-content-selection.md` | status: done
+
+## 2026-10-03
+
+- Separated document processing status from quiz-generation status: a `READY` document stays `READY` through generation success or failure; concurrency and failure codes live on the `generation_id` record; the UI polls that generation rather than source-document badges. | files: `backend/src/generate_questions.py`, `backend/src/document_status.py`, `backend/src/generation_records.py`, `backend/src/get_course_documents.py`, `backend/src/get_questions.py`, `backend/src/process_document.py`, `frontend/src/utils/quizGeneration.js`, `frontend/src/pages/CoursePage.jsx`, `frontend/src/services/documentsService.js`, `README.md`, `docs/quiz-content-selection.md` | status: done

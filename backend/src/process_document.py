@@ -29,6 +29,9 @@ PROCESSED_BUCKET = os.environ["PROCESSED_BUCKET"]
 UPLOAD_BUCKET = os.environ["UPLOAD_BUCKET"]
 
 _SUPPORTED_EXTENSIONS = {".pdf", ".png", ".jpeg", ".jpg"}
+# GENERATING is a leftover document value from when quiz generation claimed
+# source rows. New writes never set it. Keep it here so a retriggered S3
+# event does not re-run Textract on those already-processed documents.
 _SKIP_TEXTRACT_STATUSES = frozenset(
     {"PROCESSING", "EXTRACTED", "GENERATED", "READY", "FAILED", "GENERATING", "ERROR"}
 )
